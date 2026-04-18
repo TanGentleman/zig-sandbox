@@ -21,6 +21,13 @@ pub fn greetFriends(writer: *Io.Writer) Io.Writer.Error!void {
     try writer.print(separator, .{});
     try writer.print("Greetings to {s}, {s}, and {s}!\n", .{ f[0], f[1], f[2] });
     try writer.print("My name is {s} and today I'll try to be friendly.\n", .{my_name});
+    try writer.print("Final attendance:\n", .{});
+    var count: u8 = 0;
+    for (group_members) |name| {
+        count += 1;
+        try writer.print("{d}: {s}\n", .{ count, name });
+    }
+    // try writer.print("Full group: {any}\n", .{group_members});
     try writer.print(separator, .{});
 
     // the number of friends must be correct
