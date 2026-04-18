@@ -6,3 +6,6 @@ zig-out/
 
 # Older Zig layout (keep if you ever use an old toolchain)
 zig-cache/
+
+.DS_Store
+
