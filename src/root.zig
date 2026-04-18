@@ -10,7 +10,7 @@ pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
 }
 
 // This is a custom message im playing around with
-pub fn greetFriends(writer: *Io.Writer) Io.Writer.Error!void {
+pub fn greetFriends(w: *Io.Writer) Io.Writer.Error!void {
     const separator = "---\n";
     const group_size = 4;
     const group_members = [_][]const u8{ "Tan", "Ash", "Carl", "Andy" };
@@ -18,17 +18,18 @@ pub fn greetFriends(writer: *Io.Writer) Io.Writer.Error!void {
     // my friends are the other members of the group
     const f = group_members[1..];
 
-    try writer.print(separator, .{});
-    try writer.print("Greetings to {s}, {s}, and {s}!\n", .{ f[0], f[1], f[2] });
-    try writer.print("My name is {s} and today I'll try to be friendly.\n", .{my_name});
-    try writer.print("Final attendance:\n", .{});
+    try w.writeAll(separator);
+    try w.print("Greetings to {s}, {s}, and {s}!\n", .{ f[0], f[1], f[2] });
+    try w.print("My name is {s} and today I'll try to be friendly.\n", .{my_name});
+
+    // print the group members
+    try w.print("Final attendance:\n", .{});
     var count: u8 = 0;
     for (group_members) |name| {
         count += 1;
-        try writer.print("{d}: {s}\n", .{ count, name });
+        try w.print("{d}: {s}\n", .{ count, name });
     }
-    // try writer.print("Full group: {any}\n", .{group_members});
-    try writer.print(separator, .{});
+    try w.writeAll(separator);
 
     // the number of friends must be correct
     std.debug.assert(f.len == group_size - 1);
