@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
     const stdout_writer = &stdout_file_writer.interface;
 
     // try zig_sandbox.printAnotherMessage(stdout_writer);
-    try zig_sandbox.printAges(stdout_writer);
+    try zig_sandbox.greetFriends(stdout_writer);
 
     try stdout_writer.flush(); // Don't forget to flush!
 }

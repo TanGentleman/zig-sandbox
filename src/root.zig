@@ -10,17 +10,23 @@ pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
 }
 
 // This is a custom message im playing around with
-pub fn printAges(writer: *Io.Writer) Io.Writer.Error!void {
+pub fn greetFriends(writer: *Io.Writer) Io.Writer.Error!void {
     const separator = "---\n";
-    const start_age: u8 = 0;
-    _ = start_age;
-    const friends: [4][]const u8 = .{ "john", "jane", "jim", "jill" };
-    const first_friend = friends[0];
-    const f = friends;
+    const group_size = 4;
+    const group_members = [_][]const u8{ "Tan", "Ash", "Carl", "Andy" };
+    const my_name = group_members[0];
+    // my friends are the other members of the group
+    const f = group_members[1..];
+
     try writer.print(separator, .{});
-    try writer.print("hi {s}", .{first_friend});
-    try writer.print("\nalso hello to {s}, {s}, and {s}\n", .{ f[1], f[2], f[3] });
+    try writer.print("Greetings to {s}, {s}, and {s}!\n", .{ f[0], f[1], f[2] });
+    try writer.print("My name is {s} and today I'll try to be friendly.\n", .{my_name});
     try writer.print(separator, .{});
+
+    // the number of friends must be correct
+    std.debug.assert(f.len == group_size - 1);
+    // my name must be Tan
+    std.debug.assert(std.mem.eql(u8, my_name, "Tan"));
 }
 
 pub fn add(a: i32, b: i32) i32 {
