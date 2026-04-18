@@ -1,7 +1,0 @@
-.{
-    .name = .zig_sandbox,
-    .version = "0.0.1",
-    .minimum_zig_version = "0.15.2",
-    .paths = .{""},
-    .fingerprint = 0x957ab73fe9a14950,
-}
