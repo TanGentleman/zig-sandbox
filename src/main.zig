@@ -28,6 +28,7 @@ pub fn main(init: std.process.Init) !void {
 
     // try zig_sandbox.printAnotherMessage(stdout_writer);
     try zig_sandbox.greetFriends(stdout_writer);
+    try zig_sandbox.practiceMemory();
 
     try stdout_writer.flush(); // Don't forget to flush!
 }

@@ -37,6 +37,16 @@ pub fn greetFriends(w: *Io.Writer) Io.Writer.Error!void {
     std.debug.assert(std.mem.eql(u8, my_name, "Tan"));
 }
 
+pub fn practiceMemory() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const ptr = try allocator.create(i32);
+    std.debug.print("ptr={*}\n", .{ptr});
+}
+
 pub fn add(a: i32, b: i32) i32 {
     return a + b;
 }
