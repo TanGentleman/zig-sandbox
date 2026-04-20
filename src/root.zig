@@ -42,12 +42,6 @@ pub fn greetFriends(w: *Io.Writer) Io.Writer.Error!void {
     }
     try w.writeAll(separator);
 
-    for (f) |name| {
-        const val_type = @TypeOf(name);
-        std.debug.print("type: {any}" ++ nl, .{val_type});
-        // _ = val_type;
-    }
-
     // std.log.info("my friends: {any}\n", .{f});
     // the number of friends must be correct
     std.debug.assert(f.len == group_size - 1);
