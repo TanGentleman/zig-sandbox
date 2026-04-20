@@ -105,10 +105,18 @@ test "basic add functionality" {
 // 8. (remember to defer the free here too (i don't think this runs if allocation fails))
 
 pub fn myFixedBufferAllocator() !void {
-    var buffer: [128]u8 = undefined;
+    // these are configurable, try it!
+    const BUFFER_BYTES = 128 * 8;
+    const BUFFER_FRACTION = 1.0 / 8.0;
+
+    // this was helpful for my understanding
+    const max_i32_items_in_buffer = BUFFER_BYTES / 32;
+    const i32_items_in_buffer = @round(max_i32_items_in_buffer * BUFFER_FRACTION);
+
+    var buffer: [BUFFER_BYTES / 8]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const nums = try allocator.alloc(i32, 4);
+    const nums = try allocator.alloc(i32, i32_items_in_buffer);
     defer allocator.free(nums);
     for (nums, 0..) |*n, i| {
         n.* = @intCast(i * i);
