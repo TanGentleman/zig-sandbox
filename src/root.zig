@@ -66,10 +66,60 @@ pub fn practiceMemory() !void {
     std.debug.print("ptr={*}\n", .{ptr});
 }
 
+pub fn practiceFixedBuffer() !void {
+    var buffer: [128]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+
+    const nums = try allocator.alloc(i32, 4);
+    defer allocator.free(nums);
+    for (nums, 0..) |*n, i| n.* = @intCast(i * i);
+
+    std.debug.print("fba nums={any} used={d}/{d} bytes\n", .{ nums, fba.end_index, buffer.len });
+
+    // Allocating more than the buffer holds should fail gracefully.
+    const too_big = allocator.alloc(u8, 1024) catch |err| {
+        std.debug.print("expected failure: {s}\n", .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(too_big);
+}
+
 pub fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
 test "basic add functionality" {
     try std.testing.expect(add(3, 7) == 10);
+}
+
+// my fixed buffer allocator
+// it should:
+// 1. set a buffer of type [128]u8 set to undefined
+// 2. create a const allocator from an fba
+// 3. create a const nums with allocated memory for 4 i32 values
+// 4. (remember to defer the free after declaring)
+// 5. loop through and set the value of each item in the nums array to i*i (where i is its index)
+// 6. debug print the nums and used bytes (fba.end_index/buffer.len)
+// 7. set a const too_big with 1024 u8 items in the array. Catch err by printing the errorName and returning early
+// 8. (remember to defer the free here too (i don't think this runs if allocation fails))
+
+pub fn myFixedBufferAllocator() !void {
+    var buffer: [128]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    const nums = try allocator.alloc(i32, 4);
+    defer allocator.free(nums);
+    for (nums, 0..) |*n, i| {
+        n.* = @intCast(i * i);
+        std.log.info("item {d}, value: {d}", .{ i, n.* });
+    }
+    try debugPrintDelimiter();
+    std.debug.print("Nums: {any}" ++ nl ++ "Bytes used: {d}/{d}" ++ nl, .{ nums, fba.end_index, buffer.len });
+
+    const too_big = allocator.alloc(u8, 1024) catch |err| {
+        std.debug.print("The error: {s}" ++ nl, .{@errorName(err)});
+        return;
+    };
+    defer allocator.free(too_big);
 }
