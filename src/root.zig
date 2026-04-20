@@ -2,6 +2,8 @@
 const std = @import("std");
 const Io = std.Io;
 
+const Zprof = @import("zprof").Zprof;
+
 // my fav constant
 const nl = "\n";
 
@@ -124,4 +126,20 @@ pub fn myFixedBufferAllocator() !void {
         return;
     };
     defer allocator.free(too_big);
+}
+
+pub fn practiceProfiling() !void {
+    // 1. Create a profiler by wrapping your allocator with a Config
+    var zprof: Zprof(.{}) = .init(std.heap.page_allocator, undefined);
+    // .{} uses the default config (thread_safe = false, all metrics enabled)
+
+    // 2. Use the profiler's allocator instead of your original one
+    const allocator = zprof.allocator();
+
+    // 3. Use the allocator as normal
+    const data = try allocator.alloc(u8, 1024);
+    defer std.debug.print("After freeing - Has leaks: {}\n", .{zprof.profiler.hasLeaks()});
+    defer allocator.free(data);
+
+    std.debug.print("Before freeing - Has leaks: {}\n", .{zprof.profiler.hasLeaks()});
 }
