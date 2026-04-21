@@ -149,6 +149,38 @@ pub fn build(b: *std.Build) void {
 
     mod.addImport("zprof", zprof_dep.module("zprof"));
 
+    // --- tracers: Claude Code transcript ingest + analyses tool ---
+    const tracers_mod = b.addModule("tracers", .{
+        .root_source_file = b.path("src/tracers/root.zig"),
+        .target = target,
+    });
+    tracers_mod.addImport("zprof", zprof_dep.module("zprof"));
+
+    const tracers_exe = b.addExecutable(.{
+        .name = "tracers",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tracers/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "tracers", .module = tracers_mod },
+            },
+        }),
+    });
+    b.installArtifact(tracers_exe);
+
+    const run_tracers_step = b.step("run-tracers", "Run the tracers tool");
+    const run_tracers_cmd = b.addRunArtifact(tracers_exe);
+    run_tracers_step.dependOn(&run_tracers_cmd.step);
+    run_tracers_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_tracers_cmd.addArgs(args);
+    }
+
+    const tracers_mod_tests = b.addTest(.{ .root_module = tracers_mod });
+    const run_tracers_mod_tests = b.addRunArtifact(tracers_mod_tests);
+    test_step.dependOn(&run_tracers_mod_tests.step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means
