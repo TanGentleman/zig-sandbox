@@ -130,17 +130,49 @@ pub fn myFixedBufferAllocator() !void {
 }
 
 pub fn practiceProfiling() !void {
+    const BUFFER_BYTES = 100; // 10240 bytes
+
+    var buffer: [BUFFER_BYTES]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const fba_allocator = fba.allocator();
+
     // 1. Create a profiler by wrapping your allocator with a Config
-    var zprof: Zprof(.{}) = .init(std.heap.page_allocator, undefined);
+    var zprof: Zprof(.{}) = .init(fba_allocator, undefined);
     // .{} uses the default config (thread_safe = false, all metrics enabled)
 
     // 2. Use the profiler's allocator instead of your original one
     const allocator = zprof.allocator();
 
     // 3. Use the allocator as normal
-    const data = try allocator.alloc(u8, 1024);
+    const data = try allocator.alloc(u8, 100);
+
+    // Remember LIFO!
     defer std.debug.print("After freeing - Has leaks: {}\n", .{zprof.profiler.hasLeaks()});
     defer allocator.free(data);
+    defer std.debug.print("Before freeing - Has leaks: {}\n", .{zprof.profiler.hasLeaks()});
+}
 
-    std.debug.print("Before freeing - Has leaks: {}\n", .{zprof.profiler.hasLeaks()});
+pub fn testBufferOverflow() !void {
+    const BUFFER_BYTES = 100;
+    var buffer: [BUFFER_BYTES]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    var arena = std.heap.ArenaAllocator.init(fba.allocator());
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const a = try allocator.alloc(u8, 23);
+    const b = try allocator.alloc(u32, 3); // 12 bytes, 4-byte aligned
+
+    // Paint everything fba handed out as '#', then stamp user slices on top.
+    const base = @intFromPtr(&buffer);
+    var map: [BUFFER_BYTES]u8 = undefined;
+    for (&map) |*cell| cell.* = '.';
+    @memset(map[0..fba.end_index], '#');
+    @memset(map[@intFromPtr(a.ptr) - base ..][0..a.len], 'A');
+    @memset(map[@intFromPtr(b.ptr) - base ..][0 .. b.len * @sizeOf(u32)], 'B');
+
+    std.debug.print("a: {d} bytes at offset {d}\n", .{ a.len, @intFromPtr(a.ptr) - base });
+    std.debug.print("b: {d} bytes at offset {d}\n", .{ b.len * @sizeOf(u32), @intFromPtr(b.ptr) - base });
+    std.debug.print("map: {s}\n", .{&map});
+    std.debug.print("used {d}/{d}  ('#' = arena bookkeeping, '.' = free)\n", .{ fba.end_index, buffer.len });
 }

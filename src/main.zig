@@ -34,7 +34,8 @@ pub fn main(init: std.process.Init) !void {
     // try zig_sandbox.practiceMemory();
     // try zig_sandbox.practiceFixedBuffer();
     // try zig_sandbox.myFixedBufferAllocator();
-    try zig_sandbox.practiceProfiling();
+    // try zig_sandbox.practiceProfiling();
+    try zig_sandbox.testBufferOverflow();
 
     try zig_sandbox.debugPrintDelimiter();
 
