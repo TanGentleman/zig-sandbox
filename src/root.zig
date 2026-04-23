@@ -42,12 +42,6 @@ pub fn greetFriends(w: *Io.Writer) Io.Writer.Error!void {
     }
     try w.writeAll(separator);
 
-    for (f) |name| {
-        const val_type = @TypeOf(name);
-        std.debug.print("type: {any}" ++ nl, .{val_type});
-        // _ = val_type;
-    }
-
     // std.log.info("my friends: {any}\n", .{f});
     // the number of friends must be correct
     std.debug.assert(f.len == group_size - 1);
@@ -105,18 +99,18 @@ test "basic add functionality" {
 // 8. (remember to defer the free here too (i don't think this runs if allocation fails))
 
 pub fn myFixedBufferAllocator() !void {
-    // these are configurable, try it!
-    const BUFFER_BYTES = 128 * 8;
+    // These are configurable, try it!
+    const BUFFER_BYTES = 128;
     const BUFFER_FRACTION = 1.0 / 8.0;
 
-    // this was helpful for my understanding
-    const max_i32_items_in_buffer = BUFFER_BYTES / 32;
-    const i32_items_in_buffer = @round(max_i32_items_in_buffer * BUFFER_FRACTION);
+    const i32_size = @sizeOf(i32); // 4 bytes
+    const max_i32_items_in_buffer = BUFFER_BYTES / i32_size;
+    const i32_items_to_allocate = @as(usize, @floor(max_i32_items_in_buffer * BUFFER_FRACTION));
 
-    var buffer: [BUFFER_BYTES / 8]u8 = undefined;
+    var buffer: [BUFFER_BYTES]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const nums = try allocator.alloc(i32, i32_items_in_buffer);
+    const nums = try allocator.alloc(i32, i32_items_to_allocate);
     defer allocator.free(nums);
     for (nums, 0..) |*n, i| {
         n.* = @intCast(i * i);
@@ -125,8 +119,9 @@ pub fn myFixedBufferAllocator() !void {
     try debugPrintDelimiter();
     std.debug.print("Nums: {any}" ++ nl ++ "Bytes used: {d}/{d}" ++ nl, .{ nums, fba.end_index, buffer.len });
 
-    const too_big = allocator.alloc(u8, 1024) catch |err| {
-        std.debug.print("The error: {s}" ++ nl, .{@errorName(err)});
+    const sus_allocation_size = 113;
+    const too_big = allocator.alloc(u8, sus_allocation_size) catch |err| {
+        std.debug.print("Error: {s} (tried to allocate {d} bytes)" ++ nl, .{ @errorName(err), sus_allocation_size });
         return;
     };
     defer allocator.free(too_big);

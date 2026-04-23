@@ -5,7 +5,7 @@ const zig_sandbox = @import("zig_sandbox");
 
 pub fn main(init: std.process.Init) !void {
     // Prints to stderr, unbuffered, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    // std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
     // This is appropriate for anything that lives as long as the process.
     const arena: std.mem.Allocator = init.arena.allocator();
@@ -13,7 +13,8 @@ pub fn main(init: std.process.Init) !void {
     // Accessing command line arguments:
     const args = try init.minimal.args.toSlice(arena);
     for (args) |arg| {
-        std.log.info("arg: {s}", .{arg});
+        _ = arg;
+        // std.log.info("arg: {s}", .{arg});
     }
 
     // In order to do I/O operations need an `Io` instance.
@@ -25,6 +26,8 @@ pub fn main(init: std.process.Init) !void {
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
+
+    try zig_sandbox.debugPrintDelimiter();
 
     // try zig_sandbox.printAnotherMessage(stdout_writer);
     // try zig_sandbox.greetFriends(stdout_writer);

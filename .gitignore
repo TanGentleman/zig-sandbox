@@ -1,11 +1,8 @@
 # Zig build outputs
 zig-out/
-
 # Zig compiler cache (0.14+)
 .zig-cache/
 
-# Older Zig layout (keep if you ever use an old toolchain)
-zig-cache/
+zig-pkg/
 
 .DS_Store
-
