@@ -6,17 +6,34 @@ const Base64 = struct {
     _table: *const [64]u8,
 
     pub fn init() Base64 {
-        const uppers = uppers_as_str: {
-            var res: [26:0]u8 = undefined;
-            for (0..26) |i| {
+        const std_alphabet_chars = b64_chars: {
+            var chars: [64]u8 = undefined;
+            for (0..64) |i| {
                 const index: u8 = @intCast(i);
-                res[i] = 'A' + index;
+                if (i < 26) {
+                    chars[i] = 'A' + index;
+                } else if (i < 52) {
+                    // loop thru 0..26 for lowercase
+                    const lower_index: u8 = index - 26;
+                    chars[i] = 'a' + lower_index;
+                } else if (i < 62) {
+                    // loop through 0..9 for digits
+                    const num_index: u8 = index - 52;
+                    chars[i] = '0' + num_index;
+                } else if (i == 62) {
+                    chars[i] = '+';
+                } else if (i == 63) {
+                    chars[i] = '/';
+                } else @panic("control flow takes practice");
             }
-            //  generate the uppercase letters at runtime using a loop by initializing a buffer and filling it with 'A' + i for i in 0..26. This avoids manually typing each letter. Use a [26]u8 array
-            break :uppers_as_str res;
+            break :b64_chars chars;
         };
-        // const uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        std.log.info("{s}", .{uppers});
+        const isEqual = std.mem.eql(u8, std_alphabet_chars[0..64], &std.base64.standard_alphabet_chars);
+        if (!isEqual) {
+            std.log.err("value of equality test:{}", .{isEqual});
+        }
+        const uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        std.log.info("{s}", .{std_alphabet_chars});
         const lowers = "abcdefghijklmnopqrstuvwxyz";
         const numbers_and_symbols = "0123456789+/";
         std.log.debug("initializing B64 object", .{});
