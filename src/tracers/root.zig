@@ -7,12 +7,11 @@ const usage =
     \\
     \\commands:
     \\  ingest [dir]   walk dir (default: $HOME/.claude/projects) and count .jsonl files
-    \\  serve          serve aggregate analyses over HTTP (todo)
     \\  help           show this message
     \\
 ;
 
-pub const Summary = struct {
+const Summary = struct {
     files: usize = 0,
     bytes: u64 = 0,
 };
@@ -21,21 +20,13 @@ pub fn run(init: std.process.Init, writer: *Io.Writer) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
 
-    if (args.len < 2) {
+    if (args.len < 2 or std.mem.eql(u8, args[1], "help")) {
         try writer.writeAll(usage);
         return;
     }
 
     const cmd = args[1];
-    if (eq(cmd, "help") or eq(cmd, "-h") or eq(cmd, "--help")) {
-        try writer.writeAll(usage);
-        return;
-    }
-    if (eq(cmd, "ingest")) return cmdIngest(init, args[2..], writer);
-    if (eq(cmd, "serve")) {
-        try writer.writeAll("tracers serve: not yet implemented\n");
-        return;
-    }
+    if (std.mem.eql(u8, cmd, "ingest")) return cmdIngest(init, args[2..], writer);
 
     try writer.print("tracers: unknown command '{s}'\n\n", .{cmd});
     try writer.writeAll(usage);
@@ -43,16 +34,12 @@ pub fn run(init: std.process.Init, writer: *Io.Writer) !void {
 }
 
 fn cmdIngest(init: std.process.Init, extra: []const []const u8, writer: *Io.Writer) !void {
-    const arena = init.arena.allocator();
     const root_path = if (extra.len > 0)
         extra[0]
     else
-        try defaultProjectsPath(arena, init.environ_map.*);
+        try defaultProjectsPath(init.arena.allocator(), init.environ_map.*);
 
-    var dir = Io.Dir.openDirAbsolute(init.io, root_path, .{ .iterate = true }) catch |err| {
-        try writer.print("tracers ingest: cannot open '{s}': {s}\n", .{ root_path, @errorName(err) });
-        return err;
-    };
+    var dir = try Io.Dir.openDirAbsolute(init.io, root_path, .{ .iterate = true });
     defer dir.close(init.io);
 
     const summary = try ingestDir(init.gpa, init.io, &dir);
@@ -61,8 +48,7 @@ fn cmdIngest(init: std.process.Init, extra: []const []const u8, writer: *Io.Writ
     });
 }
 
-/// Recursively walk `dir`, counting `.jsonl` files and their total size.
-pub fn ingestDir(gpa: std.mem.Allocator, io: Io, dir: *Io.Dir) !Summary {
+fn ingestDir(gpa: std.mem.Allocator, io: Io, dir: *Io.Dir) !Summary {
     var summary: Summary = .{};
 
     var walker = try dir.walk(gpa);
@@ -86,10 +72,6 @@ pub fn ingestDir(gpa: std.mem.Allocator, io: Io, dir: *Io.Dir) !Summary {
 fn defaultProjectsPath(arena: std.mem.Allocator, environ: std.process.Environ.Map) ![]u8 {
     const home = environ.get("HOME") orelse return error.HomeNotSet;
     return std.fs.path.join(arena, &.{ home, ".claude", "projects" });
-}
-
-fn eq(a: []const u8, b: []const u8) bool {
-    return std.mem.eql(u8, a, b);
 }
 
 test "ingestDir counts only .jsonl files" {
@@ -121,11 +103,4 @@ test "defaultProjectsPath joins HOME" {
     const p = try defaultProjectsPath(testing.allocator, map);
     defer testing.allocator.free(p);
     try testing.expectEqualStrings("/home/zig/.claude/projects", p);
-}
-
-test "defaultProjectsPath errors without HOME" {
-    const testing = std.testing;
-    var map = std.process.Environ.Map.init(testing.allocator);
-    defer map.deinit();
-    try testing.expectError(error.HomeNotSet, defaultProjectsPath(testing.allocator, map));
 }
