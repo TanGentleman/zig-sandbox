@@ -6,13 +6,21 @@ const Base64 = struct {
     _table: *const [64]u8,
 
     pub fn init() Base64 {
-        // const upper = uppers_as_str: {
-        //     break :uppers_as_str "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        // };
-        const uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const uppers = uppers_as_str: {
+            var res: [26:0]u8 = undefined;
+            for (0..26) |i| {
+                const index: u8 = @intCast(i);
+                res[i] = 'A' + index;
+            }
+            //  generate the uppercase letters at runtime using a loop by initializing a buffer and filling it with 'A' + i for i in 0..26. This avoids manually typing each letter. Use a [26]u8 array
+            break :uppers_as_str res;
+        };
+        // const uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        std.log.info("{s}", .{uppers});
         const lowers = "abcdefghijklmnopqrstuvwxyz";
         const numbers_and_symbols = "0123456789+/";
         std.log.debug("initializing B64 object", .{});
+
         return Base64{
             ._table = uppers ++ lowers ++ numbers_and_symbols,
         };
@@ -20,7 +28,7 @@ const Base64 = struct {
 
     pub fn init_safe() Base64 {
         return Base64{
-            ._table = std.base64.standard_alphabet_chars,
+            ._table = std.base64.url_safe_alphabet_chars,
         };
     }
 
