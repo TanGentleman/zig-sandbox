@@ -76,6 +76,21 @@ For third-party libraries (HTTP frameworks, SQLite wrappers, etc.), use the
   when the *why* isn't obvious from the code.
 - Small, readable changes. Explain *why* when an API is non-obvious.
 
+## Workflow
+
+- One PR per concern. No stacks for solo work — they over-complicate the
+  bookkeeping when there's no second reviewer.
+- Repo is configured squash-only with auto-delete-branch on merge, so every
+  merge becomes exactly one commit on `main` whose message is the PR title
+  and body.
+- Treat the **PR body** as the artifact, not the commit messages on the
+  branch. Polish the body before merging — that's what'll show up on `main`
+  and what's readable later (including on a phone). Local commits during the
+  work can be `wip` / `fix test` and disappear into the squash.
+- Reshape history *before* the first push: `git commit --amend`,
+  `git rebase -i`, or `jj`. After push, only force-push to unmerged review
+  branches — never to `main`.
+
 ## Open questions
 
 - [ ] HTTP server: `std.http.Server` directly, or a library via `zig fetch`?
