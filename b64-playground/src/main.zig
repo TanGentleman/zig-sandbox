@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
 
-    try b64_playground.printAnotherMessage(stdout_writer);
+    try b64_playground.printWorkingDir(stdout_writer, io);
     const image = [_][]const u8{"a"};
     const b64_output = try b64_playground.convertImageToBase64(image[0]);
     _ = b64_output;

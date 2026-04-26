@@ -65,6 +65,14 @@ pub fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
+pub fn printWorkingDir(writer: *Io.Writer, io: Io) !void {
+    var path_buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const cwd_len = try std.process.currentPath(io, &path_buf);
+    const cwd_string = path_buf[0..cwd_len];
+    // const cwd = cwd_dir.stat;
+    try writer.print("cwd: {s}", .{cwd_string});
+}
+
 pub fn convertImageToBase64(image: []const u8) !Base64 {
     _ = image;
     const bad_lookup_result = Base64{ ._table = "________________________________________________________________" };
