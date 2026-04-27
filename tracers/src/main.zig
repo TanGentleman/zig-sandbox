@@ -1,5 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
+const nl = "\n";
 
 const tracers = @import("tracers");
 
@@ -8,9 +9,6 @@ const tracers = @import("tracers");
 // 2. return the bytes found in each .jsonl file
 // 3. use subprocess with looptap and parse the output
 pub fn main(init: std.process.Init) !void {
-    // Prints to stderr, unbuffered, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
     // This is appropriate for anything that lives as long as the process.
     const arena: std.mem.Allocator = init.arena.allocator();
 
@@ -43,33 +41,18 @@ test "simple test" {
     try std.testing.expectEqual(@as(i32, 42), list.pop());
 }
 
-test "fuzz example" {
-    try std.testing.fuzz({}, testOne, .{});
-}
-
-fn testOne(context: void, smith: *std.testing.Smith) !void {
-    _ = context;
-    // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-
+// Requirements:
+// 1. Scan ~/.claude/projects for every jsonl file > 10KB. result_count > 1
+// 2. Fill the list with size of the 10 biggest
+test "project walk works" {
     const gpa = std.testing.allocator;
-    var list: std.ArrayList(u8) = .empty;
-    defer list.deinit(gpa);
-    while (!smith.eos()) switch (smith.value(enum { add_data, dup_data })) {
-        .add_data => {
-            const slice = try list.addManyAsSlice(gpa, smith.value(u4));
-            smith.bytes(slice);
-        },
-        .dup_data => {
-            if (list.items.len == 0) continue;
-            if (list.items.len > std.math.maxInt(u32)) return error.SkipZigTest;
-            const len = smith.valueRangeAtMost(u32, 1, @min(32, list.items.len));
-            const off = smith.valueRangeAtMost(u32, 0, @intCast(list.items.len - len));
-            try list.appendSlice(gpa, list.items[off..][0..len]);
-            try std.testing.expectEqualSlices(
-                u8,
-                list.items[off..][0..len],
-                list.items[list.items.len - len ..],
-            );
-        },
-    };
+    var results_list: std.ArrayList(i32) = .empty;
+    defer results_list.deinit(gpa);
+    const result_count = tracers.getBigClaudeTranscriptCount();
+    try std.testing.expect(result_count > 10);
+    for (0..result_count) |i| {
+        std.debug.print("{d}" ++ nl, .{i});
+    }
 }
+// Getting
+// failed command: ./.zig-cache/o/1d037555dfc9fa4e4fca3cfdc01a3146/test --cache-dir=./.zig-cache --seed=0xe003723e --listen=-
