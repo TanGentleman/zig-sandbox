@@ -31,5 +31,13 @@ Signals by type:
 
 Before we overlap in Zig:
 - We need a RWT w/ latency >5 seconds
+- We want a strongly typed interface for transcripts. Surely an OS implementation out there makes it easy?
 
-What we want unique here:
+Ways we can speedrun it:
+1. walk ~/.claude/projects
+2. return the bytes found in each .jsonl file
+3. use subprocess with looptap and parse the output
+
+Future work:
+1. Query sqlite table that contains all transcript data + signals
+2. Wire to subcommand to use Datasette when UI is needed.
