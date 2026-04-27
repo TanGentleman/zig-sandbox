@@ -69,8 +69,36 @@ pub fn printWorkingDir(writer: *Io.Writer, io: Io) !void {
     var path_buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const cwd_len = try std.process.currentPath(io, &path_buf);
     const cwd_string = path_buf[0..cwd_len];
-    // const cwd = cwd_dir.stat;
-    try writer.print("cwd: {s}", .{cwd_string});
+    try writer.print("cwd: {s}\n", .{cwd_string});
+
+    var cwd_dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
+    defer cwd_dir.close(io);
+
+    var files: usize = 0;
+    var dirs: usize = 0;
+    var symlinks: usize = 0;
+    var other: usize = 0;
+    var total_bytes: u64 = 0;
+
+    var it = cwd_dir.iterate();
+    while (try it.next(io)) |entry| {
+        switch (entry.kind) {
+            .file => {
+                files += 1;
+                const stat = try cwd_dir.statFile(io, entry.name, .{});
+                total_bytes += stat.size;
+                try writer.print("  {s}: {d} bytes\n", .{ entry.name, stat.size });
+            },
+            .directory => dirs += 1,
+            .sym_link => symlinks += 1,
+            else => other += 1,
+        }
+    }
+
+    try writer.print(
+        "totals: files={d} dirs={d} symlinks={d} other={d} bytes={d}\n",
+        .{ files, dirs, symlinks, other, total_bytes },
+    );
 }
 
 pub fn convertImageToBase64(image: []const u8) !Base64 {
