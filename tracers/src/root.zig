@@ -71,7 +71,7 @@ pub fn mapClaudeTranscripts(init: std.process.Init, w: *Io.Writer) ![]MapResult 
 
     try w.print("mapping claude transcripts in {s}" ++ nl, .{claude_dir});
 
-    var dir = try std.Io.Dir.openDirAbsolute(io, claude_dir, .{ .iterate = true });
+    var dir = try Io.Dir.openDirAbsolute(io, claude_dir, .{ .iterate = true });
     defer dir.close(io);
 
     var walker = try dir.walk(gpa);
@@ -84,7 +84,7 @@ pub fn mapClaudeTranscripts(init: std.process.Init, w: *Io.Writer) ![]MapResult 
         if (!std.mem.endsWith(u8, entry.basename, ".jsonl")) continue;
 
         const stat = try entry.dir.statFile(io, entry.basename, .{});
-        const filepath = try std.fs.path.join(a, &.{ claude_dir, entry.path });
+        const filepath = try Io.Dir.path.join(a, &.{ claude_dir, entry.path });
         try results.append(a, .{
             .filepath = filepath,
             .size_in_bytes = @intCast(stat.size),

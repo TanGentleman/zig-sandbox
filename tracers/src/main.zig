@@ -38,7 +38,7 @@ pub fn main(init: std.process.Init) !void {
     _ = try tracers.getBigClaudeTranscriptCount(init, stdout_writer);
     const results = try tracers.mapClaudeTranscripts(init, stdout_writer);
     for (results) |result| {
-        try stdout_writer.print("result size: {d}" ++ nl, .{result.size_in_bytes});
+        std.log.debug("result size: {d}", .{result.size_in_bytes});
     }
 
     try stdout_writer.flush(); // Don't forget to flush!
