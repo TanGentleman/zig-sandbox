@@ -33,11 +33,13 @@ Before we overlap in Zig:
 - We need a RWT w/ latency >5 seconds
 - We want a strongly typed interface for transcripts. Surely an OS implementation out there makes it easy?
 
-Ways we can speedrun it:
-1. walk ~/.claude/projects
-2. return the bytes found in each .jsonl file
-3. use subprocess with looptap and parse the output
+Done:
+1. `mapClaudeTranscripts` walks `~/.claude/projects` once, returns `[]MapResult{filepath, size_in_bytes}`, and `std.log.debug`s any file >1MB.
+2. `runLooptap` spawns `looptap run` then `looptap info` via `std.process.run` (PATH lookup), captures stdout, parses both into a `LooptapDigest`.
+3. `printDigest` prints the merged digest from `tracers`' writer.
 
 Future work:
-1. Query sqlite table that contains all transcript data + signals
-2. Wire to subcommand to use Datasette when UI is needed.
+1. Do something with `[]MapResult` beyond the >1MB log — feed into our own analyses or pass to looptap.
+2. Query the sqlite table that contains all transcript data + signals.
+3. Wire to subcommand to use Datasette when UI is needed.
+4. Wire `tracers/` into the root `build.zig` so a single `zig build` builds everything.
