@@ -17,6 +17,8 @@ test "basic add functionality" {
     try std.testing.expect(add(3, 7) == 10);
 }
 
-pub fn getBigClaudeTranscriptCount() usize {
+//
+pub fn getBigClaudeTranscriptCount(w: *Io.Writer) Io.Writer.Error!usize {
+    try w.print("still scaffolding the transcript getter", .{});
     return 50;
 }
