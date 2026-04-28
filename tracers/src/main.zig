@@ -29,7 +29,7 @@ pub fn main(init: std.process.Init) !void {
     const stdout_writer = &stdout_file_writer.interface;
 
     try tracers.printAnotherMessage(stdout_writer);
-    _ = try tracers.getBigClaudeTranscriptCount(stdout_writer);
+    _ = try tracers.getBigClaudeTranscriptCount(init.minimal, stdout_writer);
 
     try stdout_writer.flush(); // Don't forget to flush!
 }

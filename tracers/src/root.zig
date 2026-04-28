@@ -1,6 +1,7 @@
 //! By convention, root.zig is the root source file when making a package.
 const std = @import("std");
 const Io = std.Io;
+const nl = "\n";
 
 /// This is a documentation comment to explain the `printAnotherMessage` function below.
 ///
@@ -18,7 +19,10 @@ test "basic add functionality" {
 }
 
 //
-pub fn getBigClaudeTranscriptCount(w: *Io.Writer) Io.Writer.Error!usize {
-    try w.print("still scaffolding the transcript getter", .{});
+pub fn getBigClaudeTranscriptCount(init_minimal: std.process.Init.Minimal, w: *Io.Writer) Io.Writer.Error!usize {
+    try w.print("still scaffolding the transcript getter" ++ nl, .{});
+    const environ = init_minimal.environ;
+    const res = environ.getPosix("HOME") orelse @panic("HOME not set");
+    try w.print("HOME: {s}", .{res});
     return 50;
 }
