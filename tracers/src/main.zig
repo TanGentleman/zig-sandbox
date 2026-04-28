@@ -8,6 +8,12 @@ const tracers = @import("tracers");
 // 1. walk ~/.claude/projects
 // 2. return the bytes found in each .jsonl file
 // 3. use subprocess with looptap and parse the output
+
+// change this to .debug for troubleshooting
+pub const std_options: std.Options = .{
+    .log_level = .info,
+};
+
 pub fn main(init: std.process.Init) !void {
     // This is appropriate for anything that lives as long as the process.
     const arena: std.mem.Allocator = init.arena.allocator();
@@ -29,7 +35,7 @@ pub fn main(init: std.process.Init) !void {
     const stdout_writer = &stdout_file_writer.interface;
 
     try tracers.printAnotherMessage(stdout_writer);
-    _ = try tracers.getBigClaudeTranscriptCount(init.minimal, stdout_writer);
+    _ = try tracers.getBigClaudeTranscriptCount(init, stdout_writer);
 
     try stdout_writer.flush(); // Don't forget to flush!
 }

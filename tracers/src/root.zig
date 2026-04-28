@@ -18,11 +18,36 @@ test "basic add functionality" {
     try std.testing.expect(add(3, 7) == 10);
 }
 
-//
-pub fn getBigClaudeTranscriptCount(init_minimal: std.process.Init.Minimal, w: *Io.Writer) Io.Writer.Error!usize {
-    try w.print("still scaffolding the transcript getter" ++ nl, .{});
-    const environ = init_minimal.environ;
-    const res = environ.getPosix("HOME") orelse @panic("HOME not set");
-    try w.print("HOME: {s}", .{res});
-    return 50;
+// 1. Scan ~/.claude/projects for every jsonl file > 10KB. result_count > 1
+pub fn getBigClaudeTranscriptCount(init: std.process.Init, w: *Io.Writer) !usize {
+    const gpa = init.gpa;
+    const io = init.io;
+
+    const home_dir = init.minimal.environ.getPosix("HOME") orelse return error.NoHome;
+    const claude_dir = try std.fs.path.join(gpa, &.{ home_dir, ".claude", "projects" });
+    defer gpa.free(claude_dir);
+
+    try w.print("scanning {s}" ++ nl, .{claude_dir});
+
+    var dir = try std.Io.Dir.openDirAbsolute(io, claude_dir, .{ .iterate = true });
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+
+    var big_count: usize = 0;
+    var total_count: usize = 0;
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.basename, ".jsonl")) continue;
+
+        const stat = try entry.dir.statFile(io, entry.basename, .{});
+        if (stat.size > 10 * 1024) {
+            std.log.debug("size: {d}", .{stat.size});
+            big_count += 1;
+        }
+        total_count += 1;
+    }
+    try w.print("found {d} big claude transcripts out of {d} total" ++ nl, .{ big_count, total_count });
+    return big_count;
 }
