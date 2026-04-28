@@ -22,10 +22,12 @@ pub fn main(init: std.process.Init) !void {
     var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
 
-    try tracers.printAnotherMessage(stdout_writer);
     _ = try tracers.mapClaudeTranscripts(init, stdout_writer);
     const digest = try tracers.runLooptap(init, stdout_writer);
     try tracers.printDigest(digest, stdout_writer);
+    if (std_options.log_level == .debug) {
+        try tracers.dumpDigest(digest, stdout_writer);
+    }
 
     try stdout_writer.flush();
 }

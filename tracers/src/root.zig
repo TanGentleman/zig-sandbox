@@ -9,40 +9,38 @@ pub const MapResult = struct {
     size_in_bytes: usize,
 };
 
-pub const KV = struct {
-    name: []const u8,
-    count: usize,
+pub const Stat = struct {
+    label: []const u8,
+    value: usize,
 };
 
 pub const LooptapDigest = struct {
-    found: ?usize = null,
-    parsed: ?usize = null,
-    skipped: ?usize = null,
-    errors: ?usize = null,
-    generated_signals: ?usize = null,
-
     db_path: ?[]const u8 = null,
-    sessions_total: ?usize = null,
-    turns_total: ?usize = null,
-    signals_total: ?usize = null,
-    sessions_by_source: []const KV = &.{},
-    signals_by_type: []const KV = &.{},
+    summary: []const Stat = &.{},
+    sessions_by_source: []const Stat = &.{},
+    signals_by_type: []const Stat = &.{},
 };
 
-/// This is a documentation comment to explain the `printAnotherMessage` function below.
-///
-/// Accepting an `Io.Writer` instance is a handy way to write reusable code.
-pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
-    try writer.print("Run `zig build test` to run the tests.\n", .{});
-}
+const DigestBuilder = struct {
+    arena: std.mem.Allocator,
+    db_path: ?[]const u8 = null,
+    summary: std.ArrayList(Stat) = .empty,
+    sessions_by_source: std.ArrayList(Stat) = .empty,
+    signals_by_type: std.ArrayList(Stat) = .empty,
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
+    fn append(b: *DigestBuilder, list: *std.ArrayList(Stat), label: []const u8, value: usize) !void {
+        try list.append(b.arena, .{ .label = try b.arena.dupe(u8, label), .value = value });
+    }
 
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
-}
+    fn finalize(b: *DigestBuilder) !LooptapDigest {
+        return .{
+            .db_path = b.db_path,
+            .summary = try b.summary.toOwnedSlice(b.arena),
+            .sessions_by_source = try b.sessions_by_source.toOwnedSlice(b.arena),
+            .signals_by_type = try b.signals_by_type.toOwnedSlice(b.arena),
+        };
+    }
+};
 
 pub fn getHomeDir(init: std.process.Init) ![:0]const u8 {
     return init.minimal.environ.getPosix("HOME") orelse @panic("No HOME dir found");
@@ -87,72 +85,86 @@ pub fn mapClaudeTranscripts(init: std.process.Init, w: *Io.Writer) ![]MapResult 
 }
 
 pub fn runLooptap(init: std.process.Init, w: *Io.Writer) !LooptapDigest {
-    var digest: LooptapDigest = .{};
-    const arena = init.arena.allocator();
+    var builder: DigestBuilder = .{ .arena = init.arena.allocator() };
 
-    try invokeLooptap(init, w, &.{ "looptap", "run" }, &digest, parseRunOutput);
-    try invokeLooptap(init, w, &.{ "looptap", "info" }, &digest, parseInfoOutput);
+    try invokeLooptap(init, w, &.{ "looptap", "run" }, &builder, parseRunOutput);
+    try invokeLooptap(init, w, &.{ "looptap", "info" }, &builder, parseInfoOutput);
 
-    _ = arena;
-    return digest;
+    return builder.finalize();
 }
 
 fn invokeLooptap(
     init: std.process.Init,
     w: *Io.Writer,
     argv: []const []const u8,
-    digest: *LooptapDigest,
-    parser: *const fn (std.mem.Allocator, []const u8, *LooptapDigest) anyerror!void,
+    builder: *DigestBuilder,
+    parser: *const fn (*DigestBuilder, []const u8) anyerror!void,
 ) !void {
-    const gpa = init.gpa;
-    const arena = init.arena.allocator();
-
-    const result = std.process.run(gpa, init.io, .{ .argv = argv }) catch |err| {
+    const result = std.process.run(init.gpa, init.io, .{ .argv = argv }) catch |err| {
         try w.print("looptap invocation failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer gpa.free(result.stdout);
-    defer gpa.free(result.stderr);
+    defer init.gpa.free(result.stdout);
+    defer init.gpa.free(result.stderr);
 
-    switch (result.term) {
-        .exited => |code| if (code != 0) {
-            try w.print("looptap exited with code {d}; stderr:\n{s}\n", .{ code, result.stderr });
-            return error.LooptapFailed;
-        },
-        else => {
-            try w.print("looptap terminated abnormally; stderr:\n{s}\n", .{result.stderr});
-            return error.LooptapFailed;
-        },
+    if (result.term != .exited or result.term.exited != 0) {
+        try w.print("looptap failed (term={any}); stderr:\n{s}\n", .{ result.term, result.stderr });
+        return error.LooptapFailed;
     }
 
-    try parser(arena, result.stdout, digest);
+    parser(builder, result.stdout) catch |err| {
+        try w.print(
+            "looptap output schema mismatch ({s}); captured stdout:\n{s}\n",
+            .{ @errorName(err), result.stdout },
+        );
+        return err;
+    };
 }
 
-fn parseRunOutput(arena: std.mem.Allocator, stdout: []const u8, digest: *LooptapDigest) anyerror!void {
-    _ = arena;
+fn parseRunOutput(b: *DigestBuilder, stdout: []const u8) anyerror!void {
+    var saw_found = false;
+    var saw_parsed = false;
+    var saw_generated = false;
+
     var lines = std.mem.splitScalar(u8, stdout, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0) continue;
 
         if (std.mem.startsWith(u8, line, "Found ")) {
-            digest.found = parseFirstUsize(line);
+            const n = fieldAfter(line, "Found") orelse return error.MalformedFoundLine;
+            try b.append(&b.summary, "found", n);
+            saw_found = true;
         } else if (std.mem.startsWith(u8, line, "Parsed:")) {
-            digest.parsed = fieldAfter(line, "Parsed:");
-            digest.skipped = fieldAfter(line, "Skipped:");
-            digest.errors = fieldAfter(line, "Errors:");
+            const p = fieldAfter(line, "Parsed:") orelse return error.MalformedParsedLine;
+            const s = fieldAfter(line, "Skipped:") orelse return error.MalformedParsedLine;
+            const e = fieldAfter(line, "Errors:") orelse return error.MalformedParsedLine;
+            try b.append(&b.summary, "parsed", p);
+            try b.append(&b.summary, "skipped", s);
+            try b.append(&b.summary, "errors", e);
+            saw_parsed = true;
         } else if (std.mem.startsWith(u8, line, "Generated ")) {
-            digest.generated_signals = parseFirstUsize(line);
+            const n = fieldAfter(line, "Generated") orelse return error.MalformedGeneratedLine;
+            try b.append(&b.summary, "generated signals", n);
+            saw_generated = true;
         }
     }
+
+    if (!saw_found) return error.MissingFoundLine;
+    if (!saw_parsed) return error.MissingParsedLine;
+    if (!saw_generated) return error.MissingGeneratedLine;
 }
 
-fn parseInfoOutput(arena: std.mem.Allocator, stdout: []const u8, digest: *LooptapDigest) anyerror!void {
-    var sources: std.ArrayList(KV) = .empty;
-    var signals: std.ArrayList(KV) = .empty;
-
+fn parseInfoOutput(b: *DigestBuilder, stdout: []const u8) anyerror!void {
     const Section = enum { none, sources, signals };
     var section: Section = .none;
+
+    var saw_database = false;
+    var saw_sessions = false;
+    var saw_turns = false;
+    var saw_signals = false;
+    var saw_sources_section = false;
+    var saw_signals_section = false;
 
     var lines = std.mem.splitScalar(u8, stdout, '\n');
     while (lines.next()) |raw_line| {
@@ -169,47 +181,52 @@ fn parseInfoOutput(arena: std.mem.Allocator, stdout: []const u8, digest: *Loopta
             section = .none;
             if (std.mem.startsWith(u8, line, "Database:")) {
                 const rest = std.mem.trim(u8, line["Database:".len..], " \t");
-                digest.db_path = try arena.dupe(u8, rest);
+                if (rest.len == 0) return error.MalformedDatabaseLine;
+                b.db_path = try b.arena.dupe(u8, rest);
+                saw_database = true;
             } else if (std.mem.startsWith(u8, line, "Sessions by source:")) {
                 section = .sources;
+                saw_sources_section = true;
             } else if (std.mem.startsWith(u8, line, "Signals by type:")) {
                 section = .signals;
+                saw_signals_section = true;
             } else if (std.mem.startsWith(u8, line, "Sessions:")) {
-                digest.sessions_total = fieldAfter(line, "Sessions:");
+                const n = fieldAfter(line, "Sessions:") orelse return error.MalformedSessionsLine;
+                try b.append(&b.summary, "sessions", n);
+                saw_sessions = true;
             } else if (std.mem.startsWith(u8, line, "Turns:")) {
-                digest.turns_total = fieldAfter(line, "Turns:");
+                const n = fieldAfter(line, "Turns:") orelse return error.MalformedTurnsLine;
+                try b.append(&b.summary, "turns", n);
+                saw_turns = true;
             } else if (std.mem.startsWith(u8, line, "Signals:")) {
-                digest.signals_total = fieldAfter(line, "Signals:");
+                const n = fieldAfter(line, "Signals:") orelse return error.MalformedSignalsLine;
+                try b.append(&b.summary, "signals", n);
+                saw_signals = true;
             }
-        } else if (parseKV(arena, line)) |kv| {
+        } else {
+            const stat = parseStat(b.arena, line) catch return error.MalformedStatLine;
             switch (section) {
-                .sources => try sources.append(arena, kv),
-                .signals => try signals.append(arena, kv),
-                .none => {},
+                .sources => try b.sessions_by_source.append(b.arena, stat),
+                .signals => try b.signals_by_type.append(b.arena, stat),
+                .none => return error.UnexpectedIndentedLine,
             }
-        } else |_| {}
+        }
     }
 
-    digest.sessions_by_source = try sources.toOwnedSlice(arena);
-    digest.signals_by_type = try signals.toOwnedSlice(arena);
+    if (!saw_database) return error.MissingDatabaseLine;
+    if (!saw_sessions) return error.MissingSessionsLine;
+    if (!saw_turns) return error.MissingTurnsLine;
+    if (!saw_signals) return error.MissingSignalsLine;
+    if (!saw_sources_section) return error.MissingSessionsBySourceSection;
+    if (!saw_signals_section) return error.MissingSignalsByTypeSection;
 }
 
-fn parseKV(arena: std.mem.Allocator, line: []const u8) !KV {
+fn parseStat(arena: std.mem.Allocator, line: []const u8) !Stat {
     var it = std.mem.tokenizeAny(u8, line, " \t");
-    const name_tok = it.next() orelse return error.ParseFailed;
-    const count_tok = it.next() orelse return error.ParseFailed;
-    const count = try std.fmt.parseInt(usize, count_tok, 10);
-    return .{ .name = try arena.dupe(u8, name_tok), .count = count };
-}
-
-fn parseFirstUsize(line: []const u8) ?usize {
-    var it = std.mem.tokenizeAny(u8, line, " \t");
-    while (it.next()) |tok| {
-        if (std.fmt.parseInt(usize, tok, 10)) |n| {
-            return n;
-        } else |_| {}
-    }
-    return null;
+    const label_tok = it.next() orelse return error.ParseFailed;
+    const value_tok = it.next() orelse return error.ParseFailed;
+    const value = try std.fmt.parseInt(usize, value_tok, 10);
+    return .{ .label = try arena.dupe(u8, label_tok), .value = value };
 }
 
 fn fieldAfter(line: []const u8, label: []const u8) ?usize {
@@ -220,49 +237,40 @@ fn fieldAfter(line: []const u8, label: []const u8) ?usize {
     return std.fmt.parseInt(usize, tok, 10) catch null;
 }
 
-pub fn printDigest(digest: LooptapDigest, w: *Io.Writer) !void {
-    try w.writeAll("\n=== looptap digest ===\n");
-
-    try w.writeAll("run:\n");
-    try printOptionalUsize(w, "  found            ", digest.found);
-    try printOptionalUsize(w, "  parsed           ", digest.parsed);
-    try printOptionalUsize(w, "  skipped          ", digest.skipped);
-    try printOptionalUsize(w, "  errors           ", digest.errors);
-    try printOptionalUsize(w, "  generated signals", digest.generated_signals);
-
-    try w.writeAll("info:\n");
-    if (digest.db_path) |p| {
-        try w.print("  db path          {s}\n", .{p});
-    } else {
-        try w.writeAll("  db path          -\n");
-    }
-    try printOptionalUsize(w, "  sessions         ", digest.sessions_total);
-    try printOptionalUsize(w, "  turns            ", digest.turns_total);
-    try printOptionalUsize(w, "  signals          ", digest.signals_total);
-
-    if (digest.sessions_by_source.len > 0) {
-        try w.writeAll("  sessions by source:\n");
-        for (digest.sessions_by_source) |kv| {
-            try w.print("    {s:<14} {d}\n", .{ kv.name, kv.count });
-        }
-    }
-    if (digest.signals_by_type.len > 0) {
-        try w.writeAll("  signals by type:\n");
-        for (digest.signals_by_type) |kv| {
-            try w.print("    {s:<14} {d}\n", .{ kv.name, kv.count });
-        }
-    }
+pub fn dumpDigest(digest: LooptapDigest, w: *Io.Writer) !void {
+    try w.writeAll("\n=== looptap digest (json) ===\n");
+    try std.json.Stringify.value(digest, .{ .whitespace = .indent_2 }, w);
+    try w.writeByte('\n');
 }
 
-fn printOptionalUsize(w: *Io.Writer, label: []const u8, value: ?usize) !void {
-    if (value) |v| {
-        try w.print("{s} {d}\n", .{ label, v });
-    } else {
-        try w.print("{s} -\n", .{label});
+pub fn printDigest(digest: LooptapDigest, w: *Io.Writer) !void {
+    try w.writeAll("\n=== looptap digest ===\n");
+    if (digest.db_path) |p| try w.print("db path: {s}\n", .{p});
+    try printStats(w, "summary", digest.summary);
+    try printStats(w, "sessions by source", digest.sessions_by_source);
+    try printStats(w, "signals by type", digest.signals_by_type);
+}
+
+fn printStats(w: *Io.Writer, header: []const u8, stats: []const Stat) !void {
+    if (stats.len == 0) return;
+    try w.print("{s}:\n", .{header});
+
+    var width: usize = 0;
+    for (stats) |s| width = @max(width, s.label.len);
+
+    for (stats) |s| {
+        try w.print("  {s}", .{s.label});
+        var pad = width - s.label.len;
+        while (pad > 0) : (pad -= 1) try w.writeByte(' ');
+        try w.print("  {d}\n", .{s.value});
     }
 }
 
 test "parseRunOutput extracts file and signal counts" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var b: DigestBuilder = .{ .arena = arena.allocator() };
     const stdout =
         \\Found 49 transcript files
         \\Parsed: 17  Skipped: 32  Errors: 0
@@ -270,16 +278,34 @@ test "parseRunOutput extracts file and signal counts" {
         \\Generated 29 signals
         \\
     ;
-    var digest: LooptapDigest = .{};
-    try parseRunOutput(std.testing.allocator, stdout, &digest);
-    try std.testing.expectEqual(@as(?usize, 49), digest.found);
-    try std.testing.expectEqual(@as(?usize, 17), digest.parsed);
-    try std.testing.expectEqual(@as(?usize, 32), digest.skipped);
-    try std.testing.expectEqual(@as(?usize, 0), digest.errors);
-    try std.testing.expectEqual(@as(?usize, 29), digest.generated_signals);
+    try parseRunOutput(&b, stdout);
+    const digest = try b.finalize();
+
+    try std.testing.expectEqual(@as(usize, 5), digest.summary.len);
+    try std.testing.expectEqualStrings("found", digest.summary[0].label);
+    try std.testing.expectEqual(@as(usize, 49), digest.summary[0].value);
+    try std.testing.expectEqualStrings("generated signals", digest.summary[4].label);
+    try std.testing.expectEqual(@as(usize, 29), digest.summary[4].value);
+}
+
+test "parseRunOutput rejects missing Generated line" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var b: DigestBuilder = .{ .arena = arena.allocator() };
+    const stdout =
+        \\Found 49 transcript files
+        \\Parsed: 17  Skipped: 32  Errors: 0
+        \\
+    ;
+    try std.testing.expectError(error.MissingGeneratedLine, parseRunOutput(&b, stdout));
 }
 
 test "parseInfoOutput extracts totals and breakdowns" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var b: DigestBuilder = .{ .arena = arena.allocator() };
     const stdout =
         \\Database: /tmp/looptap.db
         \\
@@ -295,19 +321,35 @@ test "parseInfoOutput extracts totals and breakdowns" {
         \\  exhaustion      61
         \\
     ;
+    try parseInfoOutput(&b, stdout);
+    const digest = try b.finalize();
+
+    try std.testing.expectEqualStrings("/tmp/looptap.db", digest.db_path.?);
+    try std.testing.expectEqual(@as(usize, 3), digest.summary.len);
+    try std.testing.expectEqual(@as(usize, 1), digest.sessions_by_source.len);
+    try std.testing.expectEqualStrings("claude-code", digest.sessions_by_source[0].label);
+    try std.testing.expectEqual(@as(usize, 75), digest.sessions_by_source[0].value);
+    try std.testing.expectEqual(@as(usize, 2), digest.signals_by_type.len);
+    try std.testing.expectEqualStrings("failure", digest.signals_by_type[0].label);
+    try std.testing.expectEqual(@as(usize, 127), digest.signals_by_type[0].value);
+}
+
+test "parseInfoOutput rejects missing Database line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var digest: LooptapDigest = .{};
-    try parseInfoOutput(arena.allocator(), stdout, &digest);
-    try std.testing.expectEqualStrings("/tmp/looptap.db", digest.db_path.?);
-    try std.testing.expectEqual(@as(?usize, 75), digest.sessions_total);
-    try std.testing.expectEqual(@as(?usize, 4558), digest.turns_total);
-    try std.testing.expectEqual(@as(?usize, 255), digest.signals_total);
-    try std.testing.expectEqual(@as(usize, 1), digest.sessions_by_source.len);
-    try std.testing.expectEqualStrings("claude-code", digest.sessions_by_source[0].name);
-    try std.testing.expectEqual(@as(usize, 75), digest.sessions_by_source[0].count);
-    try std.testing.expectEqual(@as(usize, 2), digest.signals_by_type.len);
-    try std.testing.expectEqualStrings("failure", digest.signals_by_type[0].name);
-    try std.testing.expectEqual(@as(usize, 127), digest.signals_by_type[0].count);
+    var b: DigestBuilder = .{ .arena = arena.allocator() };
+    const stdout =
+        \\Sessions: 75
+        \\Turns:    4558
+        \\Signals:  255
+        \\
+        \\Sessions by source:
+        \\  claude-code     75
+        \\
+        \\Signals by type:
+        \\  failure         127
+        \\
+    ;
+    try std.testing.expectError(error.MissingDatabaseLine, parseInfoOutput(&b, stdout));
 }
