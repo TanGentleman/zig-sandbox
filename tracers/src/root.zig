@@ -3,6 +3,11 @@ const std = @import("std");
 const Io = std.Io;
 const nl = "\n";
 
+pub const MapResult = struct {
+    filepath: []const u8,
+    size_in_bytes: usize,
+};
+
 /// This is a documentation comment to explain the `printAnotherMessage` function below.
 ///
 /// Accepting an `Io.Writer` instance is a handy way to write reusable code.
@@ -18,12 +23,16 @@ test "basic add functionality" {
     try std.testing.expect(add(3, 7) == 10);
 }
 
+pub fn getHomeDir(init: std.process.Init) ![:0]const u8 {
+    return init.minimal.environ.getPosix("HOME") orelse @panic("No HOME dir found");
+}
+
 // 1. Scan ~/.claude/projects for every jsonl file > 10KB. result_count > 1
 pub fn getBigClaudeTranscriptCount(init: std.process.Init, w: *Io.Writer) !usize {
     const gpa = init.gpa;
     const io = init.io;
 
-    const home_dir = init.minimal.environ.getPosix("HOME") orelse return error.NoHome;
+    const home_dir = try getHomeDir(init);
     const claude_dir = try std.fs.path.join(gpa, &.{ home_dir, ".claude", "projects" });
     defer gpa.free(claude_dir);
 
@@ -50,4 +59,38 @@ pub fn getBigClaudeTranscriptCount(init: std.process.Init, w: *Io.Writer) !usize
     }
     try w.print("found {d} big claude transcripts out of {d} total" ++ nl, .{ big_count, total_count });
     return big_count;
+}
+
+pub fn mapClaudeTranscripts(init: std.process.Init, w: *Io.Writer) ![]MapResult {
+    const a = init.arena.allocator();
+    const gpa = init.gpa;
+    const io = init.io;
+
+    const home_dir = try getHomeDir(init);
+    const claude_dir = try std.fs.path.join(a, &.{ home_dir, ".claude", "projects" });
+
+    try w.print("mapping claude transcripts in {s}" ++ nl, .{claude_dir});
+
+    var dir = try std.Io.Dir.openDirAbsolute(io, claude_dir, .{ .iterate = true });
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+
+    var results: std.ArrayList(MapResult) = .empty;
+
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.basename, ".jsonl")) continue;
+
+        const stat = try entry.dir.statFile(io, entry.basename, .{});
+        const filepath = try std.fs.path.join(a, &.{ claude_dir, entry.path });
+        try results.append(a, .{
+            .filepath = filepath,
+            .size_in_bytes = @intCast(stat.size),
+        });
+    }
+
+    try w.print("mapped {d} transcripts" ++ nl, .{results.items.len});
+    return try results.toOwnedSlice(a);
 }
