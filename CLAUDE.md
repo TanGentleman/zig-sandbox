@@ -27,22 +27,24 @@ don't add abstractions before the concrete code exists.
 ```
 src/root.zig            # sandbox/practice library
 src/main.zig            # sandbox entry point
-src/tracers/root.zig    # tracers library (ingest + analyses)
-src/tracers/main.zig    # tracers CLI entry point
-build.zig               # exposes `zig_sandbox` and `tracers` executables
+build.zig               # builds the `zig_sandbox` executable
+tracers/src/root.zig    # tracers library (ingest + analyses)
+tracers/src/main.zig    # tracers CLI entry point
+tracers/build.zig       # builds the `tracers` executable
 ```
 
-`src/tracers/` is the scaffold for the real tool. `src/root.zig` is where
-small `practiceXxx` functions live while learning idioms; they're invoked
-from `src/main.zig`.
+`tracers/` is its own Zig package with its own `build.zig`. `src/root.zig`
+is where small `practiceXxx` functions live while learning idioms; they're
+invoked from `src/main.zig`.
 
 ## Build & run
 
 ```sh
-zig build                         # produces ./zig-out/bin/{zig_sandbox,tracers}
-./zig-out/bin/tracers             # run the tracers CLI
-zig build run-tracers -- <args>   # build + run tracers with args
-zig build test                    # runs all unit tests
+zig build                                   # builds zig_sandbox
+zig build --build-file tracers/build.zig    # builds tracers (./tracers/zig-out/bin/tracers)
+zig build run --build-file tracers/build.zig
+zig build test                              # sandbox tests
+zig build test --build-file tracers/build.zig
 ```
 
 ## Using Zig documentation (IMPORTANT)
