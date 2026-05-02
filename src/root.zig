@@ -14,6 +14,15 @@ pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
     try writer.print("Run `zig build test` to run the tests.\n", .{});
 }
 
+// check size of pointer
+pub fn printPointerSize(w: *Io.Writer) Io.Writer.Error!u8 {
+    const val: u8 = 69;
+    const ptr = &val;
+    const result: u8 = @intCast(@sizeOf(@TypeOf(ptr)));
+    try w.print("Pointer size: {d}" ++ nl, .{result});
+    return result;
+}
+
 pub fn debugPrintDelimiter() !void {
     std.debug.print("---" ++ nl, .{});
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
+const nl = "\n";
 
 const zig_sandbox = @import("zig_sandbox");
 
@@ -28,14 +29,15 @@ pub fn main(init: std.process.Init) !void {
     const stdout_writer = &stdout_file_writer.interface;
 
     try zig_sandbox.debugPrintDelimiter();
-
+    const ptr_size = try zig_sandbox.printPointerSize(stdout_writer);
+    std.debug.print("ptr size: {d}" ++ nl, .{ptr_size});
     // try zig_sandbox.printAnotherMessage(stdout_writer);
     // try zig_sandbox.greetFriends(stdout_writer);
     // try zig_sandbox.practiceMemory();
     // try zig_sandbox.practiceFixedBuffer();
     // try zig_sandbox.myFixedBufferAllocator();
     // try zig_sandbox.practiceProfiling();
-    try zig_sandbox.testBufferOverflow();
+    // try zig_sandbox.testBufferOverflow();
 
     try zig_sandbox.debugPrintDelimiter();
 
