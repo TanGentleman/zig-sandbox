@@ -1,104 +1,79 @@
 # zig-sandbox
 
-A Zig learning repo converging on **tracers**: a fast CLI for reading and
-parsing the `~/.claude` folder.
+A Zig learning repo converging on **tracers**: a Zig CLI that orchestrates
+[looptap](https://github.com/TanGentleman/looptap) over `~/.claude/projects`
+and surfaces flagged transcripts.
 
-Current Zig version: **0.16.0**. The std library and build system change
-meaningfully between releases — verify API shape against the version in use,
-not from training-data memory.
+Zig version: **0.16.0**. Std library and build system change meaningfully
+between releases — verify against the version in use.
 
-## Project goals
+## Goals
 
-Build a single Zig binary (`tracers`) that:
+1. Walk `~/.claude/projects/**/*.jsonl` natively for basic stats. **done**
+2. Drive `looptap` as a subprocess to ingest + signal-detect into SQLite.
+   **done**
+3. Surface the JSONL paths flagged with signals (via a future
+   `looptap flagged --json` subcommand) for selection and download.
+4. Maybe: serve a small HTTP UI to view, select, and download flagged
+   transcripts.
 
-1. **Ingests Claude Code transcripts.** Walk `~/.claude/projects/**/*.jsonl`
-   (append-only, one event per line) into an in-memory representation
-   suitable for aggregate analysis. Target: thousands of files, fast.
-2. **Serves static analyses.** Local HTTP server rendering aggregate views
-   over the ingested data. May persist derived artifacts to disk for fast
-   reload.
-
-Prioritize clarity and correctness over peak throughput until the shape of
-the data and the analyses stabilizes. I/O and parsing speed is the point —
-don't add abstractions before the concrete code exists.
+Looptap owns the schema + SQLite. Tracers stays a process orchestrator —
+no SQLite Zig dep.
 
 ## Layout
 
 ```
-src/root.zig            # sandbox/practice library
-src/main.zig            # sandbox entry point
-build.zig               # builds the `zig_sandbox` executable
-tracers/src/root.zig    # tracers library (ingest + analyses)
-tracers/src/main.zig    # tracers CLI entry point
-tracers/build.zig       # builds the `tracers` executable
+src/{root,main}.zig         # sandbox / practiceXxx idioms
+build.zig                   # builds zig_sandbox
+
+tracers/src/{root,main}.zig # the real tool
+tracers/build.zig           # builds tracers
 ```
 
-`tracers/` is its own Zig package with its own `build.zig`. `src/root.zig`
-is where small `practiceXxx` functions live while learning idioms; they're
-invoked from `src/main.zig`.
-
-## Build & run
-
-```sh
-zig build                                   # builds zig_sandbox
-zig build --build-file tracers/build.zig    # builds tracers (./tracers/zig-out/bin/tracers)
-zig build run --build-file tracers/build.zig
-zig build test                              # sandbox tests
-zig build test --build-file tracers/build.zig
-```
-
-## Using Zig documentation (IMPORTANT)
-
-Zig's standard library moves fast. Before answering questions about std-lib
-APIs, writing non-trivial std-lib code, or recommending an approach, use the
-`mcp__zig-docs` MCP server to verify:
-
-- `mcp__zig-docs__search_std_lib` — fuzzy search for items.
-- `mcp__zig-docs__get_std_lib_item` — full signatures, fields, methods for a
-  fully-qualified name (e.g. `std.heap.FixedBufferAllocator`).
-- `mcp__zig-docs__list_builtin_functions` / `get_builtin_function` — for
-  `@`-builtins.
-
-Rule of thumb: if the answer names a specific std-lib type, function, or
-field, check the docs first. Memory-based answers have already been wrong
-once here (`GeneralPurposeAllocator` → `DebugAllocator`, `ThreadSafeAllocator`
-no longer standalone in `std.heap`).
-
-For third-party libraries (HTTP frameworks, SQLite wrappers, etc.), use the
-`context7` MCP before recommending APIs.
+`zig build run` from `tracers/` runs the CLI. Tests: `zig build test` in
+either tree.
 
 ## Coding conventions
 
-- Allocator discipline: pass `std.mem.Allocator` in; don't reach for globals.
-  For ingest-style bulk work, an `ArenaAllocator` per file or per batch is
-  usually the right default.
-- Real code takes a `*std.Io.Writer` so it's testable. Reserve
-  `std.debug.print` for sandbox/practice code.
-- Keep comments minimal; let names carry the meaning. Add a comment only
-  when the *why* isn't obvious from the code.
-- Small, readable changes. Explain *why* when an API is non-obvious.
+- Pass `std.mem.Allocator` in; don't reach for globals. ArenaAllocator per
+  batch is usually the right default for ingest-style work.
+- Real code takes a `*std.Io.Writer`. Reserve `std.debug.print` for
+  sandbox/practice code.
+- Comments only when the *why* isn't obvious. Names carry the meaning.
+
+## Resolved decisions
+
+- **Concurrency:** single-threaded. Tracers orchestrates subprocesses; the
+  hot loop isn't ours.
+- **On-disk format:** looptap's SQLite is the persistence layer. Tracers
+  writes nothing.
+- **Transcript event schema:** N/A in tracers — looptap parses transcripts.
+  When tracers parses JSON (looptap's stdout, future `flagged --json`),
+  use typed structs via `std.json.parseFromSlice`.
+- **HTTP server (when needed):** `std.http.Server` directly. No fetched
+  library until concrete pain shows up.
+
+## Using Zig documentation (IMPORTANT)
+
+Zig's stdlib moves fast. Before writing non-trivial stdlib code, verify via
+`mcp__zig-docs`:
+
+- `search_std_lib` — fuzzy search.
+- `get_std_lib_item` — signatures, fields, methods for a fully-qualified
+  name.
+- `list_builtin_functions` / `get_builtin_function` — for `@`-builtins.
+
+Rule: if the answer names a specific stdlib type, function, or field,
+check the docs first.
+
+For third-party libraries, use `context7` MCP.
 
 ## Workflow
 
-- One PR per concern. No stacks for solo work — they over-complicate the
-  bookkeeping when there's no second reviewer.
-- Repo is configured squash-only with auto-delete-branch on merge, so every
-  merge becomes exactly one commit on `main` whose message is the PR title
-  and body.
-- Treat the **PR body** as the artifact, not the commit messages on the
-  branch. Polish the body before merging — that's what'll show up on `main`
-  and what's readable later (including on a phone). Local commits during the
-  work can be `wip` / `fix test` and disappear into the squash.
-- Reshape history *before* the first push: `git commit --amend`,
-  `git rebase -i`, or `jj`. After push, only force-push to unmerged review
-  branches — never to `main`.
-
-## Open questions
-
-- [ ] HTTP server: `std.http.Server` directly, or a library via `zig fetch`?
-- [ ] On-disk format for derived artifacts: one big JSON, sharded JSONL, or
-      something binary later?
-- [ ] Concurrency model for ingest: single-threaded streaming, thread pool
-      over files, or async?
-- [ ] Schema handling for transcript events: typed structs via
-      `std.json.parseFromSlice`, or `std.json.Value` tree?
+- One PR per concern. No stacks for solo work.
+- Repo is squash-only with auto-delete-branch on merge — every merge is
+  one commit on `main`.
+- Treat the **PR body** as the artifact, not branch commits. Polish it
+  before merging.
+- Reshape history before the first push (`commit --amend`, `rebase -i`,
+  `jj`). Never force-push to `main`.
