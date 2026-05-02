@@ -23,6 +23,52 @@ pub fn printPointerSize(w: *Io.Writer) Io.Writer.Error!u8 {
     return result;
 }
 
+// const hi = "hi";
+
+// apply a string modifying function twice
+pub fn applyTwice(f: *const fn (*const []u8) *const []const u8, s: *const []u8) *const []u8 {
+    _ = f;
+    var arbitraryString: *const []u8 = undefined;
+    // const ptr = arbitraryString;
+    arbitraryString = &"hi";
+    // const res = ptr.*;
+    return s;
+}
+
+fn is_vowel(char: u8) bool {
+    const vowels = "aeiouAEIOU";
+    for (vowels) |vowel| {
+        if (char == vowel) return true;
+    }
+    return false;
+}
+
+// replace vowels with asterisks in a string
+pub fn censorString(allocator: std.mem.Allocator, input_string: []const u8) error{OutOfMemory}![]const u8 {
+    var s = input_string;
+    const max_chars = 10;
+    // if (s.len < max_chars)
+    const alloc_size = blk: {
+        if (input_string.len < max_chars) break :blk input_string.len;
+        std.log.err("CHOPPING STRING AT LENGTH: {d}" ++ nl, .{max_chars});
+        s = input_string[0..max_chars];
+        break :blk max_chars;
+    };
+    var res = try allocator.alloc(u8, alloc_size);
+    var count: usize = 0;
+    for (s) |char| {
+        std.debug.print("char:{c}" ++ nl, .{char});
+        if (is_vowel(char)) {
+            std.debug.print("is vowel: {c}" ++ nl, .{char});
+            res[count] = '*';
+        } else {
+            res[count] = char;
+        }
+        count += 1;
+    }
+    return res;
+}
+
 pub fn debugPrintDelimiter() !void {
     std.debug.print("---" ++ nl, .{});
 }
