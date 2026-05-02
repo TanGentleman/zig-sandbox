@@ -56,7 +56,7 @@ for the same inputs.
 ## Architecture
 
 ```
-.claude/skills/zig-docs/
+.claude/skills/zig-docs-cli/
 ├── SKILL.md                       # frontmatter + agent instructions
 ├── README.md                      # human docs: what this is, how to update WASM
 ├── pyproject.toml                 # uv project: wasmtime, httpx, beautifulsoup4
@@ -207,16 +207,12 @@ exact match 1000, prefix 500, contains 300, plus length tiebreaker.
 ```yaml
 ---
 name: zig-docs-cli
-description: |
-  Look up Zig 0.16 standard library APIs and builtin functions via a local CLI
-  (replaces the zig-docs MCP server in environments without MCP support, e.g.
-  cloud agents). Use before writing or reviewing Zig code that touches stdlib —
-  critical for std.Io filesystem APIs (std.Io.Dir, std.Io.File), Reader/Writer
-  interfaces, and std.process.Init. Triggers when answering "how do I X in Zig"
-  or writing Zig that touches files, dirs, env, or process state. If the
-  zig-docs MCP server is already connected, prefer it over this CLI.
+description: Look up Zig 0.16 standard library APIs and builtin functions via a local CLI (replaces the zig-docs MCP server in environments without MCP support, e.g. cloud agents). Use before writing or reviewing Zig code that touches stdlib — critical for std.Io filesystem APIs (std.Io.Dir, std.Io.File), Reader/Writer interfaces, and std.process.Init. Triggers when answering "how do I X in Zig" or writing Zig that touches files, dirs, env, or process state. If the zig-docs MCP server is already connected, prefer it over this CLI.
 ---
 ```
+
+Single-line description (not YAML block scalar) — keeps loader behavior
+predictable across skill harnesses.
 
 The trailing "prefer the MCP if available" line stops the skill from
 overriding the MCP locally.
@@ -227,13 +223,13 @@ Body structure:
    output.
 2. **Setup** (run once per agent session/sandbox):
    ```sh
-   cd .claude/skills/zig-docs
+   cd .claude/skills/zig-docs-cli
    uv sync
    ```
    Note: requires `ziglang.org` outbound network access.
 3. **Usage** — one example per command, using
-   `uv run --directory .claude/skills/zig-docs zigdocs ...` so the agent
-   can call from any cwd.
+   `uv run --directory .claude/skills/zig-docs-cli zigdocs ...` so the
+   agent can call from any cwd.
 4. **When to use which command** — short rubric mapping situation to
    subcommand.
 5. **Version override** — `--version 0.15.1` or
