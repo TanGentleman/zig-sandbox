@@ -14,11 +14,24 @@ pub const Stat = struct {
     value: usize,
 };
 
+pub const FlaggedSignal = struct {
+    type: []const u8,
+    confidence: f32,
+};
+
+pub const FlaggedSession = struct {
+    session_id: []const u8,
+    raw_path: []const u8,
+    started_at: []const u8,
+    signals: []const FlaggedSignal,
+};
+
 pub const LooptapDigest = struct {
     db_path: ?[]const u8 = null,
     summary: []const Stat = &.{},
     sessions_by_source: []const Stat = &.{},
     signals_by_type: []const Stat = &.{},
+    flagged: []const FlaggedSession = &.{},
 };
 
 const DigestBuilder = struct {
@@ -27,6 +40,7 @@ const DigestBuilder = struct {
     summary: std.ArrayList(Stat) = .empty,
     sessions_by_source: std.ArrayList(Stat) = .empty,
     signals_by_type: std.ArrayList(Stat) = .empty,
+    flagged: std.ArrayList(FlaggedSession) = .empty,
 
     fn append(b: *DigestBuilder, list: *std.ArrayList(Stat), label: []const u8, value: usize) !void {
         try list.append(b.arena, .{ .label = try b.arena.dupe(u8, label), .value = value });
@@ -38,6 +52,7 @@ const DigestBuilder = struct {
             .summary = try b.summary.toOwnedSlice(b.arena),
             .sessions_by_source = try b.sessions_by_source.toOwnedSlice(b.arena),
             .signals_by_type = try b.signals_by_type.toOwnedSlice(b.arena),
+            .flagged = try b.flagged.toOwnedSlice(b.arena),
         };
     }
 };
@@ -89,6 +104,11 @@ pub fn runLooptap(init: std.process.Init, w: *Io.Writer) !LooptapDigest {
 
     try invokeLooptap(init, w, &.{ "looptap", "run" }, &builder, parseRunOutput);
     try invokeLooptap(init, w, &.{ "looptap", "info" }, &builder, parseInfoOutput);
+    try invokeLooptap(init, w, &.{
+        "looptap", "query",
+        "--format", "jsonl",
+        "--signal", "failure",
+    }, &builder, parseQueryOutput);
 
     return builder.finalize();
 }
@@ -221,6 +241,22 @@ fn parseInfoOutput(b: *DigestBuilder, stdout: []const u8) anyerror!void {
     if (!saw_signals_section) return error.MissingSignalsByTypeSection;
 }
 
+fn parseQueryOutput(b: *DigestBuilder, stdout: []const u8) anyerror!void {
+    var lines = std.mem.splitScalar(u8, stdout, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (line.len == 0) continue;
+
+        const session = try std.json.parseFromSliceLeaky(
+            FlaggedSession,
+            b.arena,
+            line,
+            .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
+        );
+        try b.flagged.append(b.arena, session);
+    }
+}
+
 fn parseStat(arena: std.mem.Allocator, line: []const u8) !Stat {
     var it = std.mem.tokenizeAny(u8, line, " \t");
     const label_tok = it.next() orelse return error.ParseFailed;
@@ -243,12 +279,62 @@ pub fn dumpDigest(digest: LooptapDigest, w: *Io.Writer) !void {
     try w.writeByte('\n');
 }
 
-pub fn printDigest(digest: LooptapDigest, w: *Io.Writer) !void {
+pub fn printDigest(gpa: std.mem.Allocator, digest: LooptapDigest, w: *Io.Writer) !void {
     try w.writeAll("\n=== looptap digest ===\n");
     if (digest.db_path) |p| try w.print("db path: {s}\n", .{p});
     try printStats(w, "summary", digest.summary);
     try printStats(w, "sessions by source", digest.sessions_by_source);
     try printStats(w, "signals by type", digest.signals_by_type);
+    try printFlagged(gpa, w, digest.flagged);
+}
+
+fn printFlagged(gpa: std.mem.Allocator, w: *Io.Writer, flagged: []const FlaggedSession) !void {
+    try w.print("flagged sessions: {d}\n", .{flagged.len});
+    if (flagged.len == 0) return;
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var by_type: std.StringArrayHashMapUnmanaged(usize) = .empty;
+
+    for (flagged) |session| {
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        for (session.signals) |sig| {
+            if (seen.contains(sig.type)) continue;
+            try seen.put(a, sig.type, {});
+            const gop = try by_type.getOrPut(a, sig.type);
+            if (!gop.found_existing) gop.value_ptr.* = 0;
+            gop.value_ptr.* += 1;
+        }
+    }
+
+    try w.writeAll("  by type:\n");
+    var width: usize = 0;
+    var it = by_type.iterator();
+    while (it.next()) |e| width = @max(width, e.key_ptr.len);
+    it = by_type.iterator();
+    while (it.next()) |e| {
+        try w.print("    {s}", .{e.key_ptr.*});
+        var pad = width - e.key_ptr.len;
+        while (pad > 0) : (pad -= 1) try w.writeByte(' ');
+        try w.print("  {d}\n", .{e.value_ptr.*});
+    }
+
+    try w.writeAll("  paths:\n");
+    for (flagged) |session| {
+        try w.print("    {s}  (", .{session.raw_path});
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        var first = true;
+        for (session.signals) |sig| {
+            if (seen.contains(sig.type)) continue;
+            try seen.put(a, sig.type, {});
+            if (!first) try w.writeAll(", ");
+            try w.writeAll(sig.type);
+            first = false;
+        }
+        try w.writeAll(")\n");
+    }
 }
 
 fn printStats(w: *Io.Writer, header: []const u8, stats: []const Stat) !void {
@@ -352,4 +438,86 @@ test "parseInfoOutput rejects missing Database line" {
         \\
     ;
     try std.testing.expectError(error.MissingDatabaseLine, parseInfoOutput(&b, stdout));
+}
+
+test "parseQueryOutput parses jsonl lines into FlaggedSession" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var b: DigestBuilder = .{ .arena = arena.allocator() };
+    const stdout =
+        \\{"session_id":"a","raw_path":"/p/a.jsonl","started_at":"2026-04-28T03:44:54Z","signals":[{"type":"failure","category":"execution","confidence":0.9,"turn_idx":1,"evidence":"x"},{"type":"failure","confidence":0.6}]}
+        \\{"session_id":"b","raw_path":"/p/b.jsonl","started_at":"2026-04-26T16:37:22Z","signals":[{"type":"failure","confidence":0.9},{"type":"loop","confidence":0.7}]}
+        \\
+    ;
+    try parseQueryOutput(&b, stdout);
+    const digest = try b.finalize();
+
+    try std.testing.expectEqual(@as(usize, 2), digest.flagged.len);
+    try std.testing.expectEqualStrings("a", digest.flagged[0].session_id);
+    try std.testing.expectEqualStrings("/p/a.jsonl", digest.flagged[0].raw_path);
+    try std.testing.expectEqual(@as(usize, 2), digest.flagged[0].signals.len);
+    try std.testing.expectEqualStrings("failure", digest.flagged[0].signals[0].type);
+    try std.testing.expectEqualStrings("loop", digest.flagged[1].signals[1].type);
+}
+
+test "parseQueryOutput accepts empty stdout" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var b: DigestBuilder = .{ .arena = arena.allocator() };
+    try parseQueryOutput(&b, "");
+    const digest = try b.finalize();
+    try std.testing.expectEqual(@as(usize, 0), digest.flagged.len);
+}
+
+test "parseQueryOutput rejects malformed json" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var b: DigestBuilder = .{ .arena = arena.allocator() };
+    const stdout =
+        \\{"session_id":"a","raw_path":"/p/a.jsonl"
+        \\
+    ;
+    try std.testing.expectError(error.UnexpectedEndOfInput, parseQueryOutput(&b, stdout));
+}
+
+test "printFlagged renders by-type counts and paths" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const flagged = [_]FlaggedSession{
+        .{
+            .session_id = "a",
+            .raw_path = "/p/a.jsonl",
+            .started_at = "2026-04-28",
+            .signals = &.{
+                .{ .type = "failure", .confidence = 0.9 },
+                .{ .type = "failure", .confidence = 0.6 },
+                .{ .type = "loop", .confidence = 0.7 },
+            },
+        },
+        .{
+            .session_id = "b",
+            .raw_path = "/p/b.jsonl",
+            .started_at = "2026-04-26",
+            .signals = &.{
+                .{ .type = "failure", .confidence = 0.9 },
+            },
+        },
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(a);
+    var aw: std.Io.Writer.Allocating = .fromArrayList(a, &buf);
+    try printFlagged(std.testing.allocator, &aw.writer, &flagged);
+
+    const out = aw.writer.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out, "flagged sessions: 2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "failure") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "loop") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "/p/a.jsonl  (failure, loop)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "/p/b.jsonl  (failure)") != null);
 }

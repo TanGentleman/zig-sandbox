@@ -24,7 +24,7 @@ pub fn main(init: std.process.Init) !void {
 
     _ = try tracers.mapClaudeTranscripts(init, stdout_writer);
     const digest = try tracers.runLooptap(init, stdout_writer);
-    try tracers.printDigest(digest, stdout_writer);
+    try tracers.printDigest(init.gpa, digest, stdout_writer);
     if (std_options.log_level == .debug) {
         try tracers.dumpDigest(digest, stdout_writer);
     }
