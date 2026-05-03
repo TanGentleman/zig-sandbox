@@ -19,11 +19,16 @@ const GameConfig = struct {
     writer: *Io.Writer,
     phrase: []const u8,
     total_time: u32 = 10,
+    debug_logging: bool = true,
 };
 
 // Lets make a game
 // Input: A phrase (string) and a total time in seconds (integer)
 // Output: Show the censored phrase, and decay it line by line until the user guesses it out loud
+
+fn shouldLog(config: GameConfig) bool {
+    return !config.debug_logging;
+}
 
 pub fn runGame(config: GameConfig) !void {
     const w = config.writer;
@@ -31,7 +36,9 @@ pub fn runGame(config: GameConfig) !void {
     try printDelimiter(w);
     try w.flush();
     const output_array = try config.allocator.dupe(u8, config.phrase);
-    // std.log.debug("Secret phrase: {s}" ++ nl, .{output_array});
+    // const debug_msg = try std.fmt.allocPrint(config.allocator, "Secret phrase: {s}" ++ nl, .{output_array});
+    // try gameLog(config, debug_msg);
+    if (shouldLog(config)) try w.print("Secret phrase: {s}" ++ nl, .{output_array});
     censorStringInPlace(output_array);
     try w.print("{s}" ++ nl, .{output_array});
     // try w.print("The phrase is: {s}" ++ nl, .{censored_phrase[0..]});
