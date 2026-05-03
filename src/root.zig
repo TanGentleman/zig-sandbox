@@ -33,6 +33,13 @@ pub fn applyTwice(f: *const fn (*const []u8) *const []const u8, s: *const []u8) 
     return s;
 }
 
+pub fn doubleString(allocator: std.mem.Allocator, input_string: []const u8) ![]const u8 {
+    const result = try allocator.alloc(u8, input_string.len * 2);
+    @memcpy(result[0..input_string.len], input_string);
+    @memcpy(result[input_string.len..], input_string);
+    return result;
+}
+
 fn is_vowel(char: u8) bool {
     const vowels = "aeiouAEIOU";
     for (vowels) |vowel| {
@@ -67,6 +74,38 @@ pub fn censorString(allocator: std.mem.Allocator, input_string: []const u8) erro
         count += 1;
     }
     return res;
+}
+
+/// given an array of bytes, replaces vowel chars with asterisks
+pub fn censorStringInPlace(input_string: []u8) void {
+    // iterate thru the chars in the input
+    // replace vowels with asterisk
+    for (input_string, 0..) |char, i| {
+        if (is_vowel(char)) input_string[i] = '*';
+    }
+}
+
+test "censorStringInPlace" {
+    var input = "hey there delilah".*;
+    // const input_ptr = &input;
+    censorStringInPlace(input[0..]);
+    try std.testing.expectEqualStrings("h*y th*r* d*l*l*h", input[0..]);
+}
+
+// Accepts an input string and an allocator with a buffer twice its size.
+// Fills the allocator with an array combining the input string and a censored version.
+
+test "censorStringTask" {
+    const input_string = "hey there delilah";
+    const expected_string = input_string ++ "h*y th*r* d*l*l*h";
+
+    var buffer: [input_string.len * 2]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    var input_array = try allocator.alloc(u8, buffer.len);
+    @memcpy(input_array[0..], input_string ++ input_string);
+    censorStringInPlace(input_array[input_string.len..]);
+    try std.testing.expectEqualSlices(u8, expected_string, buffer[0..]);
 }
 
 pub fn debugPrintDelimiter() !void {

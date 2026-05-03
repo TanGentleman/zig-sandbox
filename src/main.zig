@@ -11,10 +11,6 @@ pub fn main(init: std.process.Init) !void {
     // This is appropriate for anything that lives as long as the process.
     const arena: std.mem.Allocator = init.arena.allocator();
 
-    var fba_buffer: [128]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
-    const allocator = fba.allocator();
-
     // Accessing command line arguments:
     const args = try init.minimal.args.toSlice(arena);
     for (args) |arg| {
@@ -35,24 +31,20 @@ pub fn main(init: std.process.Init) !void {
     try zig_sandbox.debugPrintDelimiter();
     const ptr_size = try zig_sandbox.printPointerSize(stdout_writer);
     std.debug.print("ptr size: {d}" ++ nl, .{ptr_size});
-    const input_string = "hey there delilah";
-    const censored_string = zig_sandbox.censorString(allocator, input_string) catch |err| res: {
-        std.debug.print("Error:{s} so returning empty string" ++ nl, .{@errorName(err)});
-        break :res "";
-    };
-    std.debug.print("result of censorship: {s}" ++ nl, .{censored_string});
-    // _ = zig_sandbox.applyTwice(zig_sandbox.censorString, magic_string);
-    // try zig_sandbox.printAnotherMessage(stdout_writer);
-    // try zig_sandbox.greetFriends(stdout_writer);
-    // try zig_sandbox.practiceMemory();
-    // try zig_sandbox.practiceFixedBuffer();
-    // try zig_sandbox.myFixedBufferAllocator();
-    // try zig_sandbox.practiceProfiling();
-    // try zig_sandbox.testBufferOverflow();
 
+    var input_string = "brb im gonna destroy earth rq".*;
+    zig_sandbox.censorStringInPlace(input_string[0..]);
+    std.debug.print("input string: {s}" ++ nl, .{input_string});
     try zig_sandbox.debugPrintDelimiter();
-
     try stdout_writer.flush(); // Don't forget to flush!
+}
+
+test "doubleString" {
+    const gpa = std.testing.allocator;
+    const original_string = "hey there delilah";
+    const input_string = try zig_sandbox.doubleString(gpa, original_string);
+    defer gpa.free(input_string);
+    try std.testing.expectEqualSlices(u8, input_string, "hey there delilahhey there delilah");
 }
 
 test "simple test" {
