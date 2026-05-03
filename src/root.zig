@@ -23,8 +23,6 @@ pub fn printPointerSize(w: *Io.Writer) Io.Writer.Error!u8 {
     return result;
 }
 
-// const hi = "hi";
-
 // apply a string modifying function twice
 pub fn applyTwice(f: *const fn (*const []u8) *const []const u8, s: *const []u8) *const []u8 {
     _ = f;
@@ -43,10 +41,10 @@ fn is_vowel(char: u8) bool {
     return false;
 }
 
-// replace vowels with asterisks in a string
+/// Replace vowels with asterisks. Max size of string is 1000 chars.
 pub fn censorString(allocator: std.mem.Allocator, input_string: []const u8) error{OutOfMemory}![]const u8 {
     var s = input_string;
-    const max_chars = 10;
+    const max_chars = 1000;
     // if (s.len < max_chars)
     const alloc_size = blk: {
         if (input_string.len < max_chars) break :blk input_string.len;
@@ -57,11 +55,13 @@ pub fn censorString(allocator: std.mem.Allocator, input_string: []const u8) erro
     var res = try allocator.alloc(u8, alloc_size);
     var count: usize = 0;
     for (s) |char| {
-        std.debug.print("char:{c}" ++ nl, .{char});
         if (is_vowel(char)) {
-            std.debug.print("is vowel: {c}" ++ nl, .{char});
+            std.debug.print("vowel char: {c}" ++ nl, .{char});
             res[count] = '*';
         } else {
+            if (char == ' ') {
+                std.debug.print("reg char: [space]" ++ nl, .{});
+            } else std.debug.print("reg char:{c}" ++ nl, .{char});
             res[count] = char;
         }
         count += 1;
