@@ -65,7 +65,7 @@ class WasmStd:
 
     def _call_optional(self, name: str, *args: int) -> int | None:
         result = self._call(name, *args)
-        return None if result == _INVALID_INDEX else result
+        return None if result in (-1, _INVALID_INDEX) else result
 
     def _read_string(self, ptr: int, length: int) -> str:
         if length == 0:
