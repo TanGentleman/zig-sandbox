@@ -29,12 +29,15 @@ pub fn main(init: std.process.Init) !void {
     const stdout_writer = &stdout_file_writer.interface;
 
     try zig_sandbox.debugPrintDelimiter();
-    const ptr_size = try zig_sandbox.printPointerSize(stdout_writer);
-    std.debug.print("ptr size: {d}" ++ nl, .{ptr_size});
-
-    var input_string = "brb im gonna destroy earth rq".*;
-    zig_sandbox.censorStringInPlace(input_string[0..]);
-    std.debug.print("input string: {s}" ++ nl, .{input_string});
+    // var input_string = "brb im gonna destroy earth rq".*;
+    // zig_sandbox.censorStringInPlace(input_string[0..]);
+    // std.debug.print("input string: {s}" ++ nl, .{input_string});
+    try zig_sandbox.runGame(.{
+        .allocator = arena,
+        .writer = stdout_writer,
+        .phrase = "brb im gonna destroy earth rq",
+        .total_time = 10,
+    });
     try zig_sandbox.debugPrintDelimiter();
     try stdout_writer.flush(); // Don't forget to flush!
 }

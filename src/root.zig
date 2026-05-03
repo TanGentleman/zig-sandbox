@@ -14,6 +14,32 @@ pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
     try writer.print("Run `zig build test` to run the tests.\n", .{});
 }
 
+const GameConfig = struct {
+    allocator: std.mem.Allocator,
+    writer: *Io.Writer,
+    phrase: []const u8,
+    total_time: u32 = 10,
+};
+
+// Lets make a game
+// Input: A phrase (string) and a total time in seconds (integer)
+// Output: Show the censored phrase, and decay it line by line until the user guesses it out loud
+
+pub fn runGame(config: GameConfig) !void {
+    const w = config.writer;
+    try w.writeAll("Game starting..." ++ nl);
+    try w.flush();
+    var censored_phrase = try config.allocator.alloc(u8, config.phrase.len);
+    @memcpy(censored_phrase, config.phrase[0..]);
+    censorStringInPlace(censored_phrase);
+
+    try w.print("The phrase is: {s}" ++ nl, .{censored_phrase[0..]});
+    try w.flush();
+    _ = config.phrase;
+    _ = config.total_time;
+    return;
+}
+
 // check size of pointer
 pub fn printPointerSize(w: *Io.Writer) Io.Writer.Error!u8 {
     const val: u8 = 69;
@@ -78,8 +104,6 @@ pub fn censorString(allocator: std.mem.Allocator, input_string: []const u8) erro
 
 /// given an array of bytes, replaces vowel chars with asterisks
 pub fn censorStringInPlace(input_string: []u8) void {
-    // iterate thru the chars in the input
-    // replace vowels with asterisk
     for (input_string, 0..) |char, i| {
         if (is_vowel(char)) input_string[i] = '*';
     }
