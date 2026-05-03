@@ -142,13 +142,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
-    const zprof_dep = b.dependency("zprof", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    mod.addImport("zprof", zprof_dep.module("zprof"));
-
     // Note: the active `tracers` build lives in `tracers/build.zig`.
 
     // Just like flags, top level steps are also listed in the `--help` menu.
