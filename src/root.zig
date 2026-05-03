@@ -28,15 +28,15 @@ const GameConfig = struct {
 pub fn runGame(config: GameConfig) !void {
     const w = config.writer;
     try w.writeAll("Game starting..." ++ nl);
+    try printDelimiter(w);
     try w.flush();
-    var censored_phrase = try config.allocator.alloc(u8, config.phrase.len);
-    @memcpy(censored_phrase, config.phrase[0..]);
-    censorStringInPlace(censored_phrase);
-
-    try w.print("The phrase is: {s}" ++ nl, .{censored_phrase[0..]});
+    const output_array = try config.allocator.dupe(u8, config.phrase);
+    // std.log.debug("Secret phrase: {s}" ++ nl, .{output_array});
+    censorStringInPlace(output_array);
+    try w.print("{s}" ++ nl, .{output_array});
+    // try w.print("The phrase is: {s}" ++ nl, .{censored_phrase[0..]});
+    try printDelimiter(w);
     try w.flush();
-    _ = config.phrase;
-    _ = config.total_time;
     return;
 }
 

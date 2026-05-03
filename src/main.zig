@@ -28,7 +28,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
 
-    try zig_sandbox.debugPrintDelimiter();
+    // try zig_sandbox.debugPrintDelimiter();
     // var input_string = "brb im gonna destroy earth rq".*;
     // zig_sandbox.censorStringInPlace(input_string[0..]);
     // std.debug.print("input string: {s}" ++ nl, .{input_string});
@@ -38,7 +38,7 @@ pub fn main(init: std.process.Init) !void {
         .phrase = "brb im gonna destroy earth rq",
         .total_time = 10,
     });
-    try zig_sandbox.debugPrintDelimiter();
+    // try zig_sandbox.debugPrintDelimiter();
     try stdout_writer.flush(); // Don't forget to flush!
 }
 
