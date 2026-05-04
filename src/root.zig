@@ -3,8 +3,8 @@ const std = @import("std");
 const Io = std.Io;
 // my fav constant
 const nl = "\n";
-const DELIMITER = "---";
 
+const utils = @import("utils.zig");
 const GameConfig = struct {
     allocator: std.mem.Allocator,
     writer: *Io.Writer,
@@ -24,48 +24,45 @@ fn shouldLog(config: GameConfig) bool {
 pub fn runGame(config: GameConfig) !void {
     const w = config.writer;
     try w.writeAll("Game starting..." ++ nl);
-    try flushDelimiter(w);
+    try utils.flushDelimiter(w);
     const visible_array = try config.allocator.dupe(u8, config.phrase);
     if (shouldLog(config)) try w.print("Secret phrase: {s}" ++ nl, .{visible_array});
     censorVowelsInPlace(visible_array);
     try w.print("{s}" ++ nl, .{visible_array});
     // try w.print("The phrase is: {s}" ++ nl, .{censored_phrase[0..]});
-    try flushDelimiter(w);
+    try utils.flushDelimiter(w);
     return;
 }
 
-// check size of pointer
-pub fn printPointerSize(w: *Io.Writer) Io.Writer.Error!u8 {
-    const val: u8 = 69;
-    const ptr = &val;
-    const result: u8 = @intCast(@sizeOf(@TypeOf(ptr)));
-    try w.print("Pointer size: {d}" ++ nl, .{result});
-    return result;
-}
-
 // apply a string modifying function twice
-pub fn applyTwice(f: *const fn (*const []u8) *const []const u8, s: *const []u8) *const []u8 {
-    _ = f;
-    var arbitraryString: *const []u8 = undefined;
-    // const ptr = arbitraryString;
-    arbitraryString = &"hi";
-    // const res = ptr.*;
-    return s;
+pub fn applyTwice(f: *const fn ([]const u8) []const u8, s: []const u8) []const u8 {
+    return f(f(s));
 }
 
-pub fn doubleString(allocator: std.mem.Allocator, input_string: []const u8) ![]const u8 {
+// test "applyTwice" {
+//     const result = applyTwice(doubleString, "hi");
+//     try std.testing.expectEqualStrings("hihi", result);
+// }
+
+pub fn doubleString(allocator: std.mem.Allocator, input_string: []const u8) error{OutOfMemory}![]const u8 {
     const result = try allocator.alloc(u8, input_string.len * 2);
     @memcpy(result[0..input_string.len], input_string);
     @memcpy(result[input_string.len..], input_string);
     return result;
 }
 
+/// check if a character is a non-accented vowel
 fn is_vowel(char: u8) bool {
-    const vowels = "aeiouAEIOU";
-    for (vowels) |vowel| {
-        if (char == vowel) return true;
+    switch (char) {
+        'a', 'e', 'i', 'o', 'u', 'A', 'E', 'I', 'O', 'U' => return true,
+        else => return false,
     }
-    return false;
+    // Option 2
+    // const vowels = "aeiouAEIOU";
+    // for (vowels) |vowel| {
+    //     if (char == vowel) return true;
+    // }
+    // return false;
 }
 
 /// given an array of bytes, replaces vowel chars with asterisks
@@ -81,27 +78,21 @@ test "censorVowelsInPlace" {
     try std.testing.expectEqualStrings("h*y th*r* d*l*l*h", input[0..]);
 }
 
-// Accepts an input string and an allocator with a buffer twice its size.
-// Fills the allocator with an array combining the input string and a censored version.
-
 test "censorStringTask" {
-    const input_string = "hey there delilah";
-    const expected_string = input_string ++ "h*y th*r* d*l*l*h";
+    const input = "hey there delilah";
+    const expected = input ++ "h*y th*r* d*l*l*h";
 
-    var buffer: [input_string.len * 2]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    var input_array = try allocator.alloc(u8, buffer.len);
-    @memcpy(input_array[0..], input_string ++ input_string);
-    censorVowelsInPlace(input_array[input_string.len..]);
-    try std.testing.expectEqualSlices(u8, expected_string, buffer[0..]);
+    var buf: [input.len * 2]u8 = undefined;
+    @memcpy(buf[0..input.len], input);
+    @memcpy(buf[input.len..][0..input.len], input);
+    censorVowelsInPlace(buf[input.len..][0..input.len]);
+    try std.testing.expectEqualSlices(u8, expected, buf[0..]);
 }
 
-pub fn debugPrintDelimiter() !void {
-    std.debug.print("---" ++ nl, .{});
-}
-
-pub fn flushDelimiter(writer: *Io.Writer) Io.Writer.Error!void {
-    try writer.writeAll(DELIMITER ++ nl);
-    try writer.flush();
+test "doubleString" {
+    const input = "born to be wild";
+    const expected = "born to be wildborn to be wild";
+    const result = try doubleString(std.testing.allocator, input);
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings(expected, result);
 }
