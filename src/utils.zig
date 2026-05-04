@@ -33,3 +33,10 @@ pub fn printTimeTaken(elapsed: std.Io.Duration) void {
         print("time taken: {d:.2} seconds", .{seconds});
     }
 }
+
+/// repeat a function n times with the given arguments
+pub fn repeat(comptime F: type, f: F, n: usize, args: anytype) !void {
+    for (0..n) |_| {
+        try f(args);
+    }
+}
