@@ -18,8 +18,9 @@ piece does.
 | `src/zigdocs/builtins.py`         | langref HTML parser + ranking                       |
 | `src/zigdocs/fetch.py`            | sources.tar / langref download + `/tmp` cache       |
 | `src/zigdocs/version.py`          | default Zig version + override resolution           |
-| `vendor/main.wasm`                | autodoc WASM, vendored from zig-mcp                 |
+| `src/zigdocs/_vendor/main.wasm`   | autodoc WASM, shipped inside the package            |
 | `vendor/PROVENANCE.md`            | build instructions + SHA256 + upstream commit       |
+| `vendor/patches/`                 | local patches applied before rebuilding the WASM    |
 
 ## Updating the vendored WASM
 
@@ -30,8 +31,10 @@ in `vendor/PROVENANCE.md`. Summary:
 cd ~/Documents/GitHub/zig-mcp
 git pull
 zig build
-cp zig-out/main.wasm <repo>/.claude/skills/zig-docs-cli/vendor/main.wasm
-shasum -a 256 <repo>/.claude/skills/zig-docs-cli/vendor/main.wasm
+cp zig-out/main.wasm \
+   <repo>/.claude/skills/zig-docs-cli/src/zigdocs/_vendor/main.wasm
+shasum -a 256 \
+   <repo>/.claude/skills/zig-docs-cli/src/zigdocs/_vendor/main.wasm
 # update SHA256 + commit + date in vendor/PROVENANCE.md
 ```
 

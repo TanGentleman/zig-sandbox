@@ -9,7 +9,7 @@ Exit codes:
 
 import argparse
 import sys
-from pathlib import Path
+from importlib.resources import files
 
 import httpx
 import wasmtime
@@ -25,23 +25,26 @@ from zigdocs.stdlib import render_get_item, render_search
 from zigdocs.version import resolve_version
 from zigdocs.wasm import WasmStd
 
-_SKILL_ROOT = Path(__file__).resolve().parent.parent.parent
-_VENDOR_WASM = _SKILL_ROOT / "vendor" / "main.wasm"
-
 
 def _err(msg: str, code: int) -> int:
     print(msg, file=sys.stderr)
     return code
 
 
-def _load_std(version: str, refresh: bool, cache_dir: str | None) -> WasmStd:
-    if not _VENDOR_WASM.exists():
+def _vendor_wasm_bytes() -> bytes:
+    wasm = files("zigdocs").joinpath("_vendor", "main.wasm")
+    if not wasm.is_file():
         raise FileNotFoundError(
-            f"vendor/main.wasm not found at {_VENDOR_WASM}. "
+            "main.wasm not found inside the zigdocs package "
+            "(expected at zigdocs/_vendor/main.wasm). "
             "See vendor/PROVENANCE.md for build instructions."
         )
+    return wasm.read_bytes()
+
+
+def _load_std(version: str, refresh: bool, cache_dir: str | None) -> WasmStd:
     sources = fetch_sources_tar(version, refresh=refresh, cache_dir=cache_dir)
-    return WasmStd(_VENDOR_WASM.read_bytes(), sources)
+    return WasmStd(_vendor_wasm_bytes(), sources)
 
 
 def _load_builtins(
