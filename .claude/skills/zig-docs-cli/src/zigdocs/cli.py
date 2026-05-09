@@ -1,4 +1,5 @@
-"""argparse entrypoint for `zigdocs`. Four subcommands matching the MCP tools.
+"""argparse entrypoint for `zigdocs`. Five subcommands matching the MCP tools
+plus a prefetch helper for offline-first workflows.
 
 Exit codes:
   0 — success (markdown on stdout)
@@ -11,9 +12,15 @@ import sys
 from pathlib import Path
 
 import httpx
+import wasmtime
 
 from zigdocs import builtins as builtins_mod
-from zigdocs.fetch import fetch_langref_html, fetch_sources_tar, langref_url
+from zigdocs.fetch import (
+    fetch_langref_html,
+    fetch_sources_tar,
+    langref_url,
+    prefetch as fetch_prefetch,
+)
 from zigdocs.stdlib import render_get_item, render_search
 from zigdocs.version import resolve_version
 from zigdocs.wasm import WasmStd
@@ -27,20 +34,20 @@ def _err(msg: str, code: int) -> int:
     return code
 
 
-def _load_std(version: str, refresh: bool) -> WasmStd:
+def _load_std(version: str, refresh: bool, cache_dir: str | None) -> WasmStd:
     if not _VENDOR_WASM.exists():
         raise FileNotFoundError(
             f"vendor/main.wasm not found at {_VENDOR_WASM}. "
             "See vendor/PROVENANCE.md for build instructions."
         )
-    sources = fetch_sources_tar(version, refresh=refresh)
+    sources = fetch_sources_tar(version, refresh=refresh, cache_dir=cache_dir)
     return WasmStd(_VENDOR_WASM.read_bytes(), sources)
 
 
 def _load_builtins(
-    version: str, refresh: bool
+    version: str, refresh: bool, cache_dir: str | None
 ) -> tuple[list[builtins_mod.BuiltinFunction], str]:
-    html = fetch_langref_html(version, refresh=refresh)
+    html = fetch_langref_html(version, refresh=refresh, cache_dir=cache_dir)
     base = langref_url(version)
     return builtins_mod.parse_builtin_functions_html(html, link_base_url=base), base
 
@@ -50,12 +57,19 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return _err("query cannot be empty", 1)
     try:
         version = resolve_version(args.version)
-        std = _load_std(version, args.refresh)
+        std = _load_std(version, args.refresh, args.cache_dir)
         sys.stdout.write(render_search(std, args.query, limit=args.limit))
         sys.stdout.write("\n")
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _cmd_get(args: argparse.Namespace) -> int:
@@ -63,7 +77,7 @@ def _cmd_get(args: argparse.Namespace) -> int:
         return _err("fully-qualified name cannot be empty", 1)
     try:
         version = resolve_version(args.version)
-        std = _load_std(version, args.refresh)
+        std = _load_std(version, args.refresh, args.cache_dir)
         md = render_get_item(std, args.fqn, get_source_file=args.source_file)
         if md.startswith("# Error"):
             print(md, file=sys.stderr)
@@ -73,12 +87,19 @@ def _cmd_get(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _cmd_builtins_list(args: argparse.Namespace) -> int:
     try:
         version = resolve_version(args.version)
-        fns, base = _load_builtins(version, args.refresh)
+        fns, base = _load_builtins(version, args.refresh, args.cache_dir)
         lines = "\n".join(f"- {fn.signature}" for fn in fns)
         sys.stdout.write(
             f"Available {len(fns)} builtin functions "
@@ -87,6 +108,13 @@ def _cmd_builtins_list(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _cmd_builtins_get(args: argparse.Namespace) -> int:
@@ -94,7 +122,7 @@ def _cmd_builtins_get(args: argparse.Namespace) -> int:
         return _err("query cannot be empty", 1)
     try:
         version = resolve_version(args.version)
-        fns, _ = _load_builtins(version, args.refresh)
+        fns, _ = _load_builtins(version, args.refresh, args.cache_dir)
         ranked = builtins_mod.rank_builtin_functions(fns, args.query)
         if not ranked:
             return _err(
@@ -114,6 +142,36 @@ def _cmd_builtins_get(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
+
+
+def _cmd_prefetch(args: argparse.Namespace) -> int:
+    try:
+        version = resolve_version(args.version)
+        paths = fetch_prefetch(
+            version, refresh=args.refresh, cache_dir=args.cache_dir
+        )
+        sys.stdout.write(
+            f"Prefetched docs for Zig {version}:\n"
+            f"  sources.tar  → {paths['sources.tar']}\n"
+            f"  langref.html → {paths['langref.html']}\n"
+        )
+        return 0
+    except (httpx.HTTPError, OSError) as e:
+        return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -122,6 +180,14 @@ def _add_common(p: argparse.ArgumentParser) -> None:
         "--refresh",
         action="store_true",
         help="Force re-download of cached resources",
+    )
+    p.add_argument(
+        "--cache-dir",
+        default=None,
+        help=(
+            "Cache directory root (overrides ZIG_DOCS_CACHE_DIR; "
+            "default: /tmp/zigdocs-cache)"
+        ),
     )
 
 
@@ -156,6 +222,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_bget.add_argument("query")
     _add_common(p_bget)
     p_bget.set_defaults(func=_cmd_builtins_get)
+
+    p_pre = sub.add_parser(
+        "prefetch",
+        help="Download sources.tar + langref.html so other commands run offline",
+    )
+    _add_common(p_pre)
+    p_pre.set_defaults(func=_cmd_prefetch)
 
     return parser
 

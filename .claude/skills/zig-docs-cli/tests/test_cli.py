@@ -42,6 +42,20 @@ def test_builtins_subcommand_help():
     assert "get" in proc.stdout
 
 
+def test_prefetch_help_lists_flags():
+    proc = run_cli("prefetch", "--help")
+    assert proc.returncode == 0
+    assert "--cache-dir" in proc.stdout
+    assert "--version" in proc.stdout
+    assert "--refresh" in proc.stdout
+
+
+def test_search_help_lists_cache_dir():
+    proc = run_cli("search", "--help")
+    assert proc.returncode == 0
+    assert "--cache-dir" in proc.stdout
+
+
 def test_builtins_get_empty_returns_exit_1(tmp_path):
     proc = run_cli("builtins", "get", "", env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)})
     assert proc.returncode == 1
@@ -51,6 +65,18 @@ def test_builtins_get_empty_returns_exit_1(tmp_path):
 def test_search_empty_query_returns_exit_1(tmp_path):
     proc = run_cli("search", "", env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)})
     assert proc.returncode == 1
+
+
+def test_search_with_corrupt_sources_tar_exits_2(tmp_path):
+    cached = tmp_path / "0.16.0" / "sources.tar"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"NOT-A-TAR")
+    proc = run_cli(
+        "search", "ArrayList", env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)}
+    )
+    assert proc.returncode == 2
+    assert "data error" in proc.stderr
+    assert "prefetch --refresh" in proc.stderr
 
 
 SMOKE = pytest.mark.skipif(
