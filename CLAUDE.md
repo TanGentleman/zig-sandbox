@@ -55,16 +55,29 @@ either tree.
 
 ## Using Zig documentation (IMPORTANT)
 
-Zig's stdlib moves fast. Before writing non-trivial stdlib code, verify via
-`mcp__zig-docs`:
+Zig's stdlib moves fast. Before writing non-trivial stdlib code, verify
+the API. Two equivalent paths — pick whichever is available:
+
+**Preferred: `mcp__zig-docs` MCP** (when connected, e.g. local dev):
 
 - `search_std_lib` — fuzzy search.
 - `get_std_lib_item` — signatures, fields, methods for a fully-qualified
-  name.
+  name (pass `get_source_file=true` for full source).
 - `list_builtin_functions` / `get_builtin_function` — for `@`-builtins.
 
+**Fallback: `zigdocs` CLI** (when MCP isn't available, e.g. cloud
+agents). Same four operations, same output. Lives at
+`.claude/skills/zig-docs-cli/`; see its `SKILL.md` for invocation.
+Run `zigdocs prefetch` once per session to warm the cache; afterwards
+every lookup is offline.
+
 Rule: if the answer names a specific stdlib type, function, or field,
-check the docs first.
+check the docs first. Reach for `--source-file` (CLI) /
+`get_source_file=true` (MCP) when the docstring is terse or you need
+invariants/internals — `MultiArrayList.items` is a typical case where
+the signature alone isn't enough. Inner types live under the defining
+module path, not the re-export (`std.multi_array_list.MultiArrayList.Slice`,
+not `std.MultiArrayList.Slice`).
 
 For third-party libraries, use `context7` MCP.
 
