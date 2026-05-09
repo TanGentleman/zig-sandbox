@@ -1,8 +1,10 @@
 # main.wasm provenance
 
-**File:** `src/zigdocs/_vendor/main.wasm` (ships inside the package so
-`pipx install` works without a sibling `vendor/` directory; build provenance
-and patches stay in this `vendor/` directory).
+**File:** `src/zigdocs/_vendor/main.wasm` (lives inside the package so
+the binary travels with the wheel — `uv sync` editable installs, `uv build`,
+and any future `uv tool install` all resolve it the same way via
+`importlib.resources`. Build provenance and patches stay in this `vendor/`
+directory and are not shipped in the wheel.)
 **Size:** 198,076 bytes (~193 KB, ReleaseSmall)
 **SHA256:** `a74b841e43de24a77f49a180b3148e6ea5f51ef3af83ecc846da8257cc4605b5`
 **Built on:** 2026-05-03
