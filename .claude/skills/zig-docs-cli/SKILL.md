@@ -58,8 +58,34 @@ uv run --directory .claude/skills/zig-docs-cli \
 | Read full docs + signature for a known FQN        | `zigdocs get <fqn>`               |
 | Read the full source file (terse docstring; want invariants, internals, or per-field implementation) | `zigdocs get <fqn> --source-file` |
 | Browse all `@`-builtins                           | `zigdocs builtins list`           |
-| Look up a specific `@builtin` or fuzzy keyword    | `zigdocs builtins get <q>`        |
+| Look up a specific `@builtin` (accepts `atomic` or `@atomic`) | `zigdocs builtins get <q>` |
 | Warm cache before going offline                   | `zigdocs prefetch`                |
+| Run several lookups in one process (cheap)        | `zigdocs batch`                   |
+
+## Batching multiple lookups
+
+Each `zigdocs` invocation pays ~1 s of Python+wasmtime startup. If you
+plan more than two lookups, pipe them through `zigdocs batch` to share
+that cost across the whole sequence — the WASM instance and parsed
+sources are reused between commands.
+
+```sh
+zigdocs batch <<'EOF'
+search ArrayList --limit 5
+get std.ArrayList
+get std.ArrayList --source-file
+builtins get atomic
+EOF
+```
+
+Each command's output is framed with a `===> <command>` separator on its
+own line. Per-line failures (not-found, bad input) are reported inline
+and **do not abort the batch**; the process exit code is the worst code
+seen across all lines (`0` if every command succeeded). `prefetch` and
+nested `batch` are rejected — run them outside.
+
+Use `zigdocs batch -f commands.txt` to read from a file instead of
+stdin. Blank lines and lines starting with `#` are ignored.
 
 **Reach for `--source-file` early** when:
 
