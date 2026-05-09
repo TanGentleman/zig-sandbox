@@ -6,7 +6,6 @@ import httpx
 
 _CACHE_ENV = "ZIG_DOCS_CACHE_DIR"
 _DEFAULT_CACHE_ROOT = Path("/tmp/zigdocs-cache")
-_BUNDLED_DATA_ROOT = Path(str(files("zigdocs").joinpath("_data")))
 
 
 def sources_tar_url(zig_version: str) -> str:
@@ -27,7 +26,7 @@ def cache_dir_for(zig_version: str, override: Path | str | None = None) -> Path:
 
 def bundled_path_for(zig_version: str, filename: str) -> Path:
     """Where a pre-bundled snapshot would live for a given version."""
-    return _BUNDLED_DATA_ROOT / zig_version / filename
+    return Path(str(files("zigdocs").joinpath("_data", zig_version, filename)))
 
 
 def _http_get_bytes(url: str) -> bytes:

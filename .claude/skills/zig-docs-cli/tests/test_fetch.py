@@ -94,6 +94,15 @@ def test_bundled_path_resolves_under_package():
     assert "zigdocs" in p.parts
 
 
+def _bundled_in(root: Path):
+    """Helper: build a bundled_path_for that resolves under `root`."""
+
+    def _inner(version: str, filename: str) -> Path:
+        return root / version / filename
+
+    return _inner
+
+
 def test_bundled_snapshot_short_circuits_network(tmp_path, monkeypatch):
     """If a bundled snapshot exists, fetch returns it without touching cache or network."""
     monkeypatch.setenv("ZIG_DOCS_CACHE_DIR", str(tmp_path))
@@ -103,7 +112,7 @@ def test_bundled_snapshot_short_circuits_network(tmp_path, monkeypatch):
     bundled_file.write_bytes(b"BUNDLED")
 
     monkeypatch.setattr(
-        "zigdocs.fetch._BUNDLED_DATA_ROOT", bundled_root
+        "zigdocs.fetch.bundled_path_for", _bundled_in(bundled_root)
     )
 
     def boom(url: str) -> bytes:
@@ -118,7 +127,9 @@ def test_bundled_bypassed_when_refresh(tmp_path, monkeypatch):
     bundled_file = bundled_root / "0.16.0" / "sources.tar"
     bundled_file.parent.mkdir(parents=True)
     bundled_file.write_bytes(b"BUNDLED")
-    monkeypatch.setattr("zigdocs.fetch._BUNDLED_DATA_ROOT", bundled_root)
+    monkeypatch.setattr(
+        "zigdocs.fetch.bundled_path_for", _bundled_in(bundled_root)
+    )
     monkeypatch.setenv("ZIG_DOCS_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setattr(
         "zigdocs.fetch._http_get_bytes", lambda url: b"FRESH"
@@ -129,7 +140,7 @@ def test_bundled_bypassed_when_refresh(tmp_path, monkeypatch):
 def test_prefetch_populates_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("ZIG_DOCS_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(
-        "zigdocs.fetch._BUNDLED_DATA_ROOT", tmp_path / "no-bundle"
+        "zigdocs.fetch.bundled_path_for", _bundled_in(tmp_path / "no-bundle")
     )
 
     def fake_get(url: str) -> bytes:
@@ -149,7 +160,9 @@ def test_prefetch_reports_bundled_paths_when_present(tmp_path, monkeypatch):
     (bundled_root / "0.16.0").mkdir(parents=True)
     (bundled_root / "0.16.0" / "sources.tar").write_bytes(b"B")
     (bundled_root / "0.16.0" / "langref.html").write_bytes(b"B")
-    monkeypatch.setattr("zigdocs.fetch._BUNDLED_DATA_ROOT", bundled_root)
+    monkeypatch.setattr(
+        "zigdocs.fetch.bundled_path_for", _bundled_in(bundled_root)
+    )
     monkeypatch.setenv("ZIG_DOCS_CACHE_DIR", str(tmp_path / "cache"))
 
     def boom(url: str) -> bytes:

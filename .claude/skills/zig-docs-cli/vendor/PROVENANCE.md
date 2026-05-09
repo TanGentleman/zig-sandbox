@@ -1,6 +1,10 @@
 # main.wasm provenance
 
-**File:** `main.wasm`
+**File:** `src/zigdocs/_vendor/main.wasm` (lives inside the package so
+the binary travels with the wheel — `uv sync` editable installs, `uv build`,
+and any future `uv tool install` all resolve it the same way via
+`importlib.resources`. Build provenance and patches stay in this `vendor/`
+directory and are not shipped in the wheel.)
 **Size:** 198,076 bytes (~193 KB, ReleaseSmall)
 **SHA256:** `a74b841e43de24a77f49a180b3148e6ea5f51ef3af83ecc846da8257cc4605b5`
 **Built on:** 2026-05-03
@@ -34,8 +38,9 @@ git fetch origin && git checkout <new-sha>
 git apply <repo>/.claude/skills/zig-docs-cli/vendor/patches/walk-drop-asm-legacy.patch
 zig build                                    # produces zig-out/main.wasm
 cp zig-out/main.wasm \
-   <repo>/.claude/skills/zig-docs-cli/vendor/main.wasm
-shasum -a 256 <repo>/.claude/skills/zig-docs-cli/vendor/main.wasm
+   <repo>/.claude/skills/zig-docs-cli/src/zigdocs/_vendor/main.wasm
+shasum -a 256 \
+   <repo>/.claude/skills/zig-docs-cli/src/zigdocs/_vendor/main.wasm
 # update SHA256 + commit + date in this file; refresh patch if upstream
 # changed Walk.zig
 ```
