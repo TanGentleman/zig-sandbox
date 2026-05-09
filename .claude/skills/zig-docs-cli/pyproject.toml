@@ -24,3 +24,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/zigdocs"]
+
+# Be explicit: the vendored WASM is part of the package, not just incidental
+# files swept in by hatchling defaults. Keeps editable installs (`uv sync`),
+# wheel builds (`uv build`), and future tool installs in lockstep.
+[tool.hatch.build.targets.wheel.force-include]
+"src/zigdocs/_vendor/main.wasm" = "zigdocs/_vendor/main.wasm"
