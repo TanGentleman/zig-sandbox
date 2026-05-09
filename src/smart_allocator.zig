@@ -2,13 +2,12 @@ const std = @import("std");
 const Io = std.Io;
 const nl = "\n";
 const print = std.debug.print;
-
 // Constants
 
 // Requirements:
 // 1. No ai generated code
 // 2. Run the binary, prompted to "pick a file"
-// 3. Handles "quit", esc key, newline
+// 3. Supports "quit" or value 1-4 as valid.
 // 4. If invalid answer, try again, otherwise submit
 // 5. Display text from the chosen file (read dynamically)
 
@@ -17,16 +16,22 @@ pub fn runAllocateTask() !void {
 }
 
 const RaiseQuit: type = error{};
+const InvalidInput: type = error{};
+const Response = struct {
+    value: []const u8,
+};
 
-fn handle_line(line: []u8) error{RaiseQuit}!void {
-    if (std.mem.eql(u8, line, "\n")) {
+fn input_to_response(line: []u8) error{ InvalidInput, RaiseQuit, DelimiterError }!Response {
+    if (std.mem.eql(u8, line, "1")) {
+        return Response{ .value = line };
+    } else if (std.mem.eql(u8, line, "\n")) {
         // this clause should never occur, since delimiter is newline
-        print("found newline", .{});
+        std.log.err("found newline. check delimiter!", .{});
+        return error.DelimiterError;
     } else if (std.mem.eql(u8, line, "quit")) {
-        print("found quit", .{});
         return error.RaiseQuit;
     }
-    return;
+    return error.InvalidInput;
 }
 
 const Settings = struct {
@@ -73,11 +78,15 @@ pub fn main(init: std.process.Init) !void {
     var line: []u8 = undefined;
     line = try r.takeDelimiterExclusive('\n');
     try w.print("You submitted: {s}" ++ nl, .{line});
-    _ = handle_line(line) catch |err| {
-        print("Error:{s}" ++ nl, .{@errorName(err)});
+    const response = input_to_response(line) catch |err| {
+        print("Error: {s}" ++ nl, .{@errorName(err)});
         switch (err) {
-            error.RaiseQuit => return err,
+            error.RaiseQuit => return,
+            error.InvalidInput => return,
+            else => return err,
         }
     };
+    _ = response;
+    try w.print("made it to the end!", .{});
     try w.flush();
 }
