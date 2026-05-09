@@ -7,7 +7,11 @@ import pytest
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 
 
-def run_cli(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+def run_cli(
+    *args: str,
+    env: dict | None = None,
+    stdin: str | None = None,
+) -> subprocess.CompletedProcess:
     cmd = ["uv", "run", "zigdocs", *args]
     full_env = os.environ.copy()
     if env:
@@ -18,6 +22,7 @@ def run_cli(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
         env=full_env,
         capture_output=True,
         text=True,
+        input=stdin,
     )
 
 
@@ -40,6 +45,80 @@ def test_builtins_subcommand_help():
     assert proc.returncode == 0
     assert "list" in proc.stdout
     assert "get" in proc.stdout
+
+
+def test_batch_help_mentions_stdin_and_file():
+    proc = run_cli("batch", "--help")
+    assert proc.returncode == 0
+    assert "stdin" in proc.stdout.lower()
+    assert "-f" in proc.stdout or "--file" in proc.stdout
+
+
+def test_batch_empty_stdin_exits_0(tmp_path):
+    proc = run_cli(
+        "batch", env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)}, stdin=""
+    )
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+def test_batch_skips_blank_and_comment_lines(tmp_path):
+    proc = run_cli(
+        "batch",
+        env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)},
+        stdin="\n# a comment\n   \n",
+    )
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+def test_batch_rejects_nested_batch_and_prefetch_inline(tmp_path):
+    proc = run_cli(
+        "batch",
+        env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)},
+        stdin="batch\nprefetch\nsearch\n",
+    )
+    # search with no query is exit 1; rejections are exit 1 too.
+    assert proc.returncode == 1
+    assert proc.stdout.count("===> ") == 3
+    assert "is not allowed inside batch" in proc.stdout
+    # both batch + prefetch should be rejected by name
+    assert "===> batch\n" in proc.stdout
+    assert "===> prefetch\n" in proc.stdout
+
+
+def test_batch_unparseable_line_does_not_abort(tmp_path):
+    # unterminated quote → shlex raises; later lines should still run.
+    stdin = 'search "unterminated\nsearch ""\n'
+    proc = run_cli(
+        "batch",
+        env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)},
+        stdin=stdin,
+    )
+    assert proc.returncode == 1
+    assert "unparseable line" in proc.stdout
+    # second line ran and reached the empty-query handler
+    assert proc.stdout.count("===> ") == 2
+
+
+def test_batch_aggregates_max_exit_code(tmp_path):
+    # both lines fail with exit 1 (empty queries); aggregate must be 1, not 0.
+    proc = run_cli(
+        "batch",
+        env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)},
+        stdin="search\nbuiltins get\n",
+    )
+    assert proc.returncode == 1
+
+
+def test_batch_from_file(tmp_path):
+    cmds = tmp_path / "cmds.txt"
+    cmds.write_text("# header\nsearch\n", encoding="utf-8")
+    proc = run_cli(
+        "batch", "-f", str(cmds), env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)}
+    )
+    assert proc.returncode == 1
+    assert "===> search\n" in proc.stdout
 
 
 def test_prefetch_help_lists_flags():
