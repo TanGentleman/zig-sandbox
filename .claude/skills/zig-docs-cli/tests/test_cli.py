@@ -67,6 +67,18 @@ def test_search_empty_query_returns_exit_1(tmp_path):
     assert proc.returncode == 1
 
 
+def test_search_with_corrupt_sources_tar_exits_2(tmp_path):
+    cached = tmp_path / "0.16.0" / "sources.tar"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"NOT-A-TAR")
+    proc = run_cli(
+        "search", "ArrayList", env={"ZIG_DOCS_CACHE_DIR": str(tmp_path)}
+    )
+    assert proc.returncode == 2
+    assert "data error" in proc.stderr
+    assert "prefetch --refresh" in proc.stderr
+
+
 SMOKE = pytest.mark.skipif(
     os.environ.get("ZIGDOCS_SMOKE") != "1",
     reason="set ZIGDOCS_SMOKE=1 for network smoke tests",

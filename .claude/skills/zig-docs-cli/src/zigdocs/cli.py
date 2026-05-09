@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import httpx
+import wasmtime
 
 from zigdocs import builtins as builtins_mod
 from zigdocs.fetch import (
@@ -62,6 +63,13 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _cmd_get(args: argparse.Namespace) -> int:
@@ -79,6 +87,13 @@ def _cmd_get(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _cmd_builtins_list(args: argparse.Namespace) -> int:
@@ -93,6 +108,13 @@ def _cmd_builtins_list(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _cmd_builtins_get(args: argparse.Namespace) -> int:
@@ -120,6 +142,13 @@ def _cmd_builtins_get(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _cmd_prefetch(args: argparse.Namespace) -> int:
@@ -136,6 +165,13 @@ def _cmd_prefetch(args: argparse.Namespace) -> int:
         return 0
     except (httpx.HTTPError, OSError) as e:
         return _err(f"network/cache error: {e}", 2)
+    except (wasmtime.WasmtimeError, RuntimeError) as e:
+        return _err(
+            f"data error: {e}\n"
+            "The cached or bundled sources.tar may be corrupt. "
+            "Try `zigdocs prefetch --refresh`.",
+            2,
+        )
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
