@@ -8,6 +8,12 @@ Drive [looptap](https://github.com/TanGentleman/looptap) over `~/.claude/project
 curl -fsSL https://raw.githubusercontent.com/TanGentleman/tracers/main/tracers/scripts/install.sh | bash
 ```
 
+To remove it later:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TanGentleman/tracers/main/tracers/scripts/uninstall.sh | bash
+```
+
 You also need `looptap` on PATH:
 
 ```bash
