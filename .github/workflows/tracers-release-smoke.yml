@@ -34,8 +34,12 @@ jobs:
           ./tracers --help
 
   install-script:
-    name: install.sh
-    runs-on: ubuntu-latest
+    name: install.sh (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
