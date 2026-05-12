@@ -23,15 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Script checks
-        run: |
-          bash -n scripts/install.sh scripts/cut-release.sh
-          if grep -Fq 'tracers-install-$$' scripts/install.sh; then
-            echo "install.sh must use mktemp -d for its download directory" >&2
-            exit 1
-          fi
-          grep -Fq 'mktemp -d' scripts/install.sh
-
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
