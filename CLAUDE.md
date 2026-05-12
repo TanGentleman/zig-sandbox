@@ -1,6 +1,6 @@
-# zig-sandbox
+# tracers
 
-Zig 0.16 sandbox.
+Zig 0.16 monorepo. `tracers/` is the shipping CLI; `sandbox/` is throwaway experiments.
 
 ## Zig docs
 

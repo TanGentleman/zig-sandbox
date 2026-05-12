@@ -2,7 +2,7 @@
 # Install (or update) tracers from GitHub Releases.
 # Re-run to update — it overwrites the existing binary.
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/TanGentleman/zig-sandbox/main/tracers/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/TanGentleman/tracers/main/tracers/scripts/install.sh | bash
 #   curl -fsSL ... | bash -s -- latest
 #   TRACERS_INSTALL_DIR=$HOME/bin curl -fsSL ... | bash -s -- v0.1.0
 #
@@ -27,8 +27,8 @@ if [[ ! "$TARGET" =~ ^(stable|latest|[vV]?[0-9]+\.[0-9]+\.[0-9]+(-[^[:space:]]+)
 	exit 1
 fi
 
-# Override for forks: export TRACERS_REPO=you/your-zig-sandbox
-GITHUB_REPO="${TRACERS_REPO:-TanGentleman/zig-sandbox}"
+# Override for forks: export TRACERS_REPO=you/your-tracers
+GITHUB_REPO="${TRACERS_REPO:-TanGentleman/tracers}"
 
 # Install destination (created if missing). ~/.local/bin is usually already on PATH on Linux; macOS may need a shell profile line.
 INSTALL_DIR="${TRACERS_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"

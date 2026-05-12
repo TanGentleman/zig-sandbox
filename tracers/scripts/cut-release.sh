@@ -68,7 +68,7 @@ fi
 TAG="v${raw}"
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
-	echo "Not inside a git repo — run this from a zig-sandbox checkout." >&2
+	echo "Not inside a git repo — run this from a tracers checkout." >&2
 	exit 1
 }
 cd "$ROOT"

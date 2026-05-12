@@ -5,7 +5,7 @@ Drive [looptap](https://github.com/TanGentleman/looptap) over `~/.claude/project
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TanGentleman/zig-sandbox/main/tracers/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TanGentleman/tracers/main/tracers/scripts/install.sh | bash
 ```
 
 You also need `looptap` on PATH:
