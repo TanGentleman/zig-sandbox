@@ -19,7 +19,7 @@ set -euo pipefail
 
 TARGET="${1:-stable}"
 
-if [[ -n "$TARGET" ]] && [[ ! "$TARGET" =~ ^(stable|latest|[vV]?[0-9]+\.[0-9]+\.[0-9]+(-[^[:space:]]+)?)$ ]]; then
+if [[ ! "$TARGET" =~ ^(stable|latest|[vV]?[0-9]+\.[0-9]+\.[0-9]+(-[^[:space:]]+)?)$ ]]; then
 	echo "Usage: $0 [stable|latest|VERSION]" >&2
 	echo "  stable  — newest non-prerelease (default)" >&2
 	echo "  latest  — newest release, including prereleases" >&2
@@ -53,14 +53,12 @@ download_file() {
 		else
 			curl -fsSL "$url"
 		fi
-	elif [[ "$DOWNLOADER" == "wget" ]]; then
+	else
 		if [[ -n "$output" ]]; then
 			wget -q -O "$output" "$url"
 		else
 			wget -q -O - "$url"
 		fi
-	else
-		return 1
 	fi
 }
 

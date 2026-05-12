@@ -19,7 +19,7 @@ DRY_RUN=false
 VERSION=""
 
 usage() {
-	sed -n '2,/^$/p' "$0" | tail -n +1
+	sed -n '2,/^$/p' "$0" | tail -n +1 >&2
 	echo "Options:" >&2
 	echo "  --dirty       allow uncommitted changes" >&2
 	echo "  --skip-tests  skip 'zig build test' in tracers/" >&2

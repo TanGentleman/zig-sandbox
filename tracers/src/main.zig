@@ -44,6 +44,13 @@ pub fn main(init: std.process.Init) !void {
                 try stdout_writer.flush();
                 return;
             }
+            var stderr_buffer: [256]u8 = undefined;
+            var stderr_file_writer: Io.File.Writer = .init(.stderr(), io, &stderr_buffer);
+            const stderr_writer = &stderr_file_writer.interface;
+            try stderr_writer.print("tracers: unknown argument: {s}\n\n", .{arg});
+            try stderr_writer.writeAll(usage);
+            try stderr_writer.flush();
+            std.process.exit(2);
         }
     }
 
