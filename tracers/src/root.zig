@@ -99,16 +99,21 @@ pub fn mapClaudeTranscripts(init: std.process.Init, w: *Io.Writer) ![]MapResult 
     return try results.toOwnedSlice(a);
 }
 
-pub fn runLooptap(init: std.process.Init, w: *Io.Writer) !LooptapDigest {
-    var builder: DigestBuilder = .{ .arena = init.arena.allocator() };
+pub fn runLooptap(
+    init: std.process.Init,
+    w: *Io.Writer,
+    signals: []const []const u8,
+) !LooptapDigest {
+    const a = init.arena.allocator();
+    var builder: DigestBuilder = .{ .arena = a };
 
     try invokeLooptap(init, w, &.{ "looptap", "run" }, &builder, parseRunOutput);
     try invokeLooptap(init, w, &.{ "looptap", "info" }, &builder, parseInfoOutput);
-    try invokeLooptap(init, w, &.{
-        "looptap", "query",
-        "--format", "jsonl",
-        "--signal", "failure",
-    }, &builder, parseQueryOutput);
+
+    var query_argv: std.ArrayList([]const u8) = .empty;
+    try query_argv.appendSlice(a, &.{ "looptap", "query", "--format", "jsonl" });
+    for (signals) |s| try query_argv.appendSlice(a, &.{ "--signal", s });
+    try invokeLooptap(init, w, query_argv.items, &builder, parseQueryOutput);
 
     return builder.finalize();
 }
@@ -273,22 +278,58 @@ fn fieldAfter(line: []const u8, label: []const u8) ?usize {
     return std.fmt.parseInt(usize, tok, 10) catch null;
 }
 
+pub const PrintOptions = struct {
+    /// If set, paths that start with `home_dir + "/"` are rewritten with a `~/` prefix.
+    home_dir: ?[]const u8 = null,
+    /// Max number of flagged-session paths to print. Anything beyond this is
+    /// summarised as `... and N more`. 0 means "show all".
+    flagged_path_limit: usize = 5,
+};
+
 pub fn dumpDigest(digest: LooptapDigest, w: *Io.Writer) !void {
     try w.writeAll("\n=== looptap digest (json) ===\n");
     try std.json.Stringify.value(digest, .{ .whitespace = .indent_2 }, w);
     try w.writeByte('\n');
 }
 
-pub fn printDigest(gpa: std.mem.Allocator, digest: LooptapDigest, w: *Io.Writer) !void {
+pub fn printDigest(
+    gpa: std.mem.Allocator,
+    digest: LooptapDigest,
+    opts: PrintOptions,
+    w: *Io.Writer,
+) !void {
     try w.writeAll("\n=== looptap digest ===\n");
-    if (digest.db_path) |p| try w.print("db path: {s}\n", .{p});
+    if (digest.db_path) |p| {
+        const pretty = prettifyPath(p, opts.home_dir);
+        try w.print("db: {s}{s}\n", .{ pretty.prefix, pretty.rest });
+    }
+    try w.writeByte('\n');
     try printStats(w, "summary", digest.summary);
     try printStats(w, "sessions by source", digest.sessions_by_source);
     try printStats(w, "signals by type", digest.signals_by_type);
-    try printFlagged(gpa, w, digest.flagged);
+    try printFlagged(gpa, w, digest.flagged, opts);
 }
 
-fn printFlagged(gpa: std.mem.Allocator, w: *Io.Writer, flagged: []const FlaggedSession) !void {
+const PrettyPath = struct {
+    prefix: []const u8,
+    rest: []const u8,
+};
+
+fn prettifyPath(path: []const u8, home_dir: ?[]const u8) PrettyPath {
+    const home = home_dir orelse return .{ .prefix = "", .rest = path };
+    if (home.len == 0) return .{ .prefix = "", .rest = path };
+    if (!std.mem.startsWith(u8, path, home)) return .{ .prefix = "", .rest = path };
+    if (path.len == home.len) return .{ .prefix = "~", .rest = "" };
+    if (path[home.len] != '/') return .{ .prefix = "", .rest = path };
+    return .{ .prefix = "~", .rest = path[home.len..] };
+}
+
+fn printFlagged(
+    gpa: std.mem.Allocator,
+    w: *Io.Writer,
+    flagged: []const FlaggedSession,
+    opts: PrintOptions,
+) !void {
     try w.print("flagged sessions: {d}\n", .{flagged.len});
     if (flagged.len == 0) return;
 
@@ -297,7 +338,6 @@ fn printFlagged(gpa: std.mem.Allocator, w: *Io.Writer, flagged: []const FlaggedS
     const a = arena.allocator();
 
     var by_type: std.StringArrayHashMapUnmanaged(usize) = .empty;
-
     for (flagged) |session| {
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         for (session.signals) |sig| {
@@ -309,21 +349,43 @@ fn printFlagged(gpa: std.mem.Allocator, w: *Io.Writer, flagged: []const FlaggedS
         }
     }
 
-    try w.writeAll("  by type:\n");
-    var width: usize = 0;
+    try w.writeAll("  by type\n");
+    var label_w: usize = 0;
+    var value_w: usize = 0;
     var it = by_type.iterator();
-    while (it.next()) |e| width = @max(width, e.key_ptr.len);
+    while (it.next()) |e| {
+        label_w = @max(label_w, e.key_ptr.len);
+        value_w = @max(value_w, digitWidth(e.value_ptr.*));
+    }
     it = by_type.iterator();
     while (it.next()) |e| {
         try w.print("    {s}", .{e.key_ptr.*});
-        var pad = width - e.key_ptr.len;
-        while (pad > 0) : (pad -= 1) try w.writeByte(' ');
-        try w.print("  {d}\n", .{e.value_ptr.*});
+        try writePad(w, label_w - e.key_ptr.len);
+        try w.writeAll("  ");
+        try writePad(w, value_w - digitWidth(e.value_ptr.*));
+        try w.print("{d}\n", .{e.value_ptr.*});
     }
 
-    try w.writeAll("  paths:\n");
-    for (flagged) |session| {
-        try w.print("    {s}  (", .{session.raw_path});
+    const sorted = try a.dupe(FlaggedSession, flagged);
+    std.mem.sort(FlaggedSession, sorted, {}, struct {
+        fn lt(_: void, lhs: FlaggedSession, rhs: FlaggedSession) bool {
+            return std.mem.order(u8, lhs.started_at, rhs.started_at) == .gt;
+        }
+    }.lt);
+
+    const total = sorted.len;
+    const limit = if (opts.flagged_path_limit == 0) total else @min(opts.flagged_path_limit, total);
+    const hidden = total - limit;
+
+    if (hidden == 0) {
+        try w.writeAll("  paths (most recent first)\n");
+    } else {
+        try w.print("  paths (showing {d} of {d}, most recent first)\n", .{ limit, total });
+    }
+
+    for (sorted[0..limit]) |session| {
+        const pretty = prettifyPath(session.raw_path, opts.home_dir);
+        try w.print("    {s}{s}  (", .{ pretty.prefix, pretty.rest });
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         var first = true;
         for (session.signals) |sig| {
@@ -335,21 +397,42 @@ fn printFlagged(gpa: std.mem.Allocator, w: *Io.Writer, flagged: []const FlaggedS
         }
         try w.writeAll(")\n");
     }
+
+    if (hidden > 0) try w.print("    ... and {d} more\n", .{hidden});
 }
 
 fn printStats(w: *Io.Writer, header: []const u8, stats: []const Stat) !void {
     if (stats.len == 0) return;
-    try w.print("{s}:\n", .{header});
+    try w.print("{s}\n", .{header});
 
-    var width: usize = 0;
-    for (stats) |s| width = @max(width, s.label.len);
+    var label_w: usize = 0;
+    var value_w: usize = 0;
+    for (stats) |s| {
+        label_w = @max(label_w, s.label.len);
+        value_w = @max(value_w, digitWidth(s.value));
+    }
 
     for (stats) |s| {
         try w.print("  {s}", .{s.label});
-        var pad = width - s.label.len;
-        while (pad > 0) : (pad -= 1) try w.writeByte(' ');
-        try w.print("  {d}\n", .{s.value});
+        try writePad(w, label_w - s.label.len);
+        try w.writeAll("  ");
+        try writePad(w, value_w - digitWidth(s.value));
+        try w.print("{d}\n", .{s.value});
     }
+    try w.writeByte('\n');
+}
+
+fn writePad(w: *Io.Writer, n: usize) !void {
+    var i: usize = 0;
+    while (i < n) : (i += 1) try w.writeByte(' ');
+}
+
+fn digitWidth(n: usize) usize {
+    if (n == 0) return 1;
+    var x = n;
+    var d: usize = 0;
+    while (x != 0) : (x /= 10) d += 1;
+    return d;
 }
 
 test "parseRunOutput extracts file and signal counts" {
@@ -512,7 +595,7 @@ test "printFlagged renders by-type counts and paths" {
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(a);
     var aw: std.Io.Writer.Allocating = .fromArrayList(a, &buf);
-    try printFlagged(std.testing.allocator, &aw.writer, &flagged);
+    try printFlagged(std.testing.allocator, &aw.writer, &flagged, .{ .flagged_path_limit = 0 });
 
     const out = aw.writer.buffered();
     try std.testing.expect(std.mem.indexOf(u8, out, "flagged sessions: 2") != null);
@@ -520,4 +603,60 @@ test "printFlagged renders by-type counts and paths" {
     try std.testing.expect(std.mem.indexOf(u8, out, "loop") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "/p/a.jsonl  (failure, loop)") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "/p/b.jsonl  (failure)") != null);
+}
+
+test "printFlagged truncates beyond limit and notes hidden count" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const flagged = [_]FlaggedSession{
+        .{ .session_id = "1", .raw_path = "/p/1.jsonl", .started_at = "2026-05-01", .signals = &.{.{ .type = "failure", .confidence = 0.9 }} },
+        .{ .session_id = "2", .raw_path = "/p/2.jsonl", .started_at = "2026-05-02", .signals = &.{.{ .type = "failure", .confidence = 0.9 }} },
+        .{ .session_id = "3", .raw_path = "/p/3.jsonl", .started_at = "2026-05-03", .signals = &.{.{ .type = "failure", .confidence = 0.9 }} },
+        .{ .session_id = "4", .raw_path = "/p/4.jsonl", .started_at = "2026-05-04", .signals = &.{.{ .type = "failure", .confidence = 0.9 }} },
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(a);
+    var aw: std.Io.Writer.Allocating = .fromArrayList(a, &buf);
+    try printFlagged(std.testing.allocator, &aw.writer, &flagged, .{ .flagged_path_limit = 2 });
+
+    const out = aw.writer.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out, "showing 2 of 4, most recent first") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "... and 2 more") != null);
+    // Most-recent first: /p/4 then /p/3, and /p/1, /p/2 are hidden.
+    try std.testing.expect(std.mem.indexOf(u8, out, "/p/4.jsonl") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "/p/3.jsonl") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "/p/2.jsonl") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "/p/1.jsonl") == null);
+    // Order check: 4 appears before 3.
+    const idx4 = std.mem.indexOf(u8, out, "/p/4.jsonl").?;
+    const idx3 = std.mem.indexOf(u8, out, "/p/3.jsonl").?;
+    try std.testing.expect(idx4 < idx3);
+}
+
+test "prettifyPath collapses home prefix" {
+    const home = "/Users/tan";
+    const got = prettifyPath("/Users/tan/.claude/projects/x.jsonl", home);
+    try std.testing.expectEqualStrings("~", got.prefix);
+    try std.testing.expectEqualStrings("/.claude/projects/x.jsonl", got.rest);
+
+    const same = prettifyPath("/Users/tan", home);
+    try std.testing.expectEqualStrings("~", same.prefix);
+    try std.testing.expectEqualStrings("", same.rest);
+
+    const other = prettifyPath("/var/log/x", home);
+    try std.testing.expectEqualStrings("", other.prefix);
+    try std.testing.expectEqualStrings("/var/log/x", other.rest);
+
+    // Don't collapse a longer-named sibling like /Users/tango/...
+    const sibling = prettifyPath("/Users/tango/x", home);
+    try std.testing.expectEqualStrings("", sibling.prefix);
+    try std.testing.expectEqualStrings("/Users/tango/x", sibling.rest);
+
+    // No home given.
+    const noop = prettifyPath("/Users/tan/x", null);
+    try std.testing.expectEqualStrings("", noop.prefix);
+    try std.testing.expectEqualStrings("/Users/tan/x", noop.rest);
 }
