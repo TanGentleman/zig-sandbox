@@ -170,8 +170,7 @@ fi
 ASSET_NAME="tracers-${platform}"
 TAG="$(resolve_tag "$TARGET")"
 
-DOWNLOAD_DIR="${TMPDIR:-/tmp}/tracers-install-$$"
-mkdir -p "$DOWNLOAD_DIR"
+DOWNLOAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tracers-install.XXXXXXXXXX")"
 cleanup() { rm -rf "$DOWNLOAD_DIR"; }
 trap cleanup EXIT
 
