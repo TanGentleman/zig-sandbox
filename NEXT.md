@@ -2,12 +2,11 @@
 
 ## Open / deferred
 
-- **Signal set is hardcoded to `failure`.** Promote to a CLI arg when a second
-  signal type earns its keep — `looptap query` already accepts repeatable
-  `--signal` flags.
 - **`looptap run` always re-ingests.** A `--no-run` flag would let you iterate
   on queries without re-parsing. Skipped — re-ingest is fast enough at current
   corpus size.
+- **Flagged path list defaults to top 5.** Most-recent first, with `... and N
+  more` trailing. Add `--limit N` / `--all` if 5 turns out to be too short.
 
 ## 3. Ship the bundle
 
