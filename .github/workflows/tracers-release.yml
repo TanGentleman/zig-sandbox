@@ -1,0 +1,91 @@
+# Cross-compile tracers for every platform the install script expects, attach
+# SHA256SUMS, and cut a GitHub Release. Trigger: push tag v* (e.g. v0.1.0).
+#
+# Zig is its own cross-compiler so a single Linux runner handles every target;
+# no separate macOS runner or musl container needed.
+name: Tracers release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: "0.16.0"
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-macos
+            asset: tracers-darwin-arm64
+          - target: x86_64-macos
+            asset: tracers-darwin-amd64
+          - target: x86_64-linux-gnu
+            asset: tracers-linux-amd64
+          - target: aarch64-linux-gnu
+            asset: tracers-linux-arm64
+          - target: x86_64-linux-musl
+            asset: tracers-linux-amd64-musl
+          - target: aarch64-linux-musl
+            asset: tracers-linux-arm64-musl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Compute version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: tracers
+        run: |
+          zig build \
+            -Dtarget=${{ matrix.target }} \
+            -Doptimize=ReleaseSafe \
+            -Dversion=${{ steps.ver.outputs.version }}
+          cp zig-out/bin/tracers "${{ github.workspace }}/${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  publish:
+    name: GitHub Release + SHA256SUMS
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten & checksum
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'tracers-*' -exec cp {} release/ \;
+          cd release
+          sha256sum tracers-* | sort -k2 > SHA256SUMS
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "$TAG" \
+            --generate-notes \
+            --notes "Install: \`curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/tracers/scripts/install.sh | bash\`" \
+            release/*
