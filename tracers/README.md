@@ -104,3 +104,8 @@ Cut a tag and push — GitHub Actions builds the matrix and publishes the releas
 ```bash
 ./scripts/cut-release.sh 0.1.0
 ```
+
+If a release was already created from GitHub's "Draft a new release" page, run
+the "Tracers release" workflow manually for that existing `v*` tag. The workflow
+will rebuild the binaries, upload `SHA256SUMS`, and overwrite any generated
+assets on the existing release.

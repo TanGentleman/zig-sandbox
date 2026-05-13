@@ -1,5 +1,6 @@
 # Cross-compile tracers for every platform the install script expects, attach
-# SHA256SUMS, and cut a GitHub Release. Trigger: push tag v* (e.g. v0.1.0).
+# SHA256SUMS, and cut or update a GitHub Release. Trigger: push tag v*
+# (e.g. v0.1.0), or manually dispatch for an existing tag.
 #
 # Zig is its own cross-compiler so a single Linux runner handles every target;
 # no separate macOS runner or musl container needed.
@@ -9,12 +10,19 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish assets for, e.g. v0.1.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 env:
   ZIG_VERSION: "0.16.0"
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -37,14 +45,22 @@ jobs:
           - target: aarch64-linux-musl
             asset: tracers-linux-arm64-musl
     steps:
+      - name: Validate release tag
+        id: ver
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "Release tag must look like vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-prerelease: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Compute version
-        id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build
         working-directory: tracers
@@ -78,14 +94,23 @@ jobs:
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
 
-      - name: Create release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.ref_name }}"
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --title "$TAG" \
-            --generate-notes \
-            --notes "Install: \`curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/tracers/scripts/install.sh | bash\`" \
-            release/*
+          TAG="${RELEASE_TAG}"
+          REPO="${{ github.repository }}"
+
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; uploading generated assets."
+            gh release upload "$TAG" release/* \
+              --repo "$REPO" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --title "$TAG" \
+              --generate-notes \
+              --notes "Install: \`curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/tracers/scripts/install.sh | bash\`" \
+              release/*
+          fi

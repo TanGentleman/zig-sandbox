@@ -5,6 +5,15 @@ name: Tracers release smoke
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to smoke test, e.g. v0.1.0"
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
 
 jobs:
   binary:
@@ -19,11 +28,36 @@ jobs:
             asset: tracers-darwin-arm64
     runs-on: ${{ matrix.runner }}
     steps:
+      - name: Wait for release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSET_NAME: ${{ matrix.asset }}
+        run: |
+          for attempt in {1..60}; do
+            assets="$(gh release view "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets \
+              --jq '.assets[].name' 2>/dev/null || true)"
+
+            if printf '%s\n' "$assets" | grep -Fxq "$ASSET_NAME" && \
+              printf '%s\n' "$assets" | grep -Fxq "SHA256SUMS"; then
+              exit 0
+            fi
+
+            echo "Waiting for ${ASSET_NAME} and SHA256SUMS on ${RELEASE_TAG} (attempt ${attempt}/60)..."
+            sleep 10
+          done
+
+          echo "Timed out waiting for ${ASSET_NAME} and SHA256SUMS on ${RELEASE_TAG}." >&2
+          echo "Assets seen:" >&2
+          printf '%s\n' "$assets" >&2
+          exit 1
+
       - name: Download release binary
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download "${{ github.event.release.tag_name }}" \
+          gh release download "$RELEASE_TAG" \
             --pattern "${{ matrix.asset }}" --dir .
           chmod +x "${{ matrix.asset }}"
           mv "${{ matrix.asset }}" tracers
@@ -38,15 +72,46 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, macos-14]
+        include:
+          - runner: ubuntu-latest
+            asset: tracers-linux-amd64
+          - runner: macos-14
+            asset: tracers-darwin-arm64
     runs-on: ${{ matrix.runner }}
     steps:
+      - name: Wait for release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSET_NAME: ${{ matrix.asset }}
+        run: |
+          for attempt in {1..60}; do
+            assets="$(gh release view "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets \
+              --jq '.assets[].name' 2>/dev/null || true)"
+
+            if printf '%s\n' "$assets" | grep -Fxq "$ASSET_NAME" && \
+              printf '%s\n' "$assets" | grep -Fxq "SHA256SUMS"; then
+              exit 0
+            fi
+
+            echo "Waiting for ${ASSET_NAME} and SHA256SUMS on ${RELEASE_TAG} (attempt ${attempt}/60)..."
+            sleep 10
+          done
+
+          echo "Timed out waiting for ${ASSET_NAME} and SHA256SUMS on ${RELEASE_TAG}." >&2
+          echo "Assets seen:" >&2
+          printf '%s\n' "$assets" >&2
+          exit 1
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install via install.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tracers/scripts/install.sh "${{ github.event.release.tag_name }}"
+        run: bash tracers/scripts/install.sh "$RELEASE_TAG"
 
       - name: "Smoke: installed binary boots"
         run: |
