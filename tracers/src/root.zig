@@ -321,6 +321,9 @@ pub fn serve(init: std.process.Init, log_writer: *Io.Writer, opts: ServeOptions)
     const flagged_text = flagged_aw.writer.buffered();
 
     const address = try std.Io.net.IpAddress.parseLiteral(opts.addr);
+    // The server is unauthenticated; refuse to bind anywhere a remote host
+    // could reach. Lift this once an auth story exists (see TODO.md).
+    if (!isLoopback(address)) return error.NonLoopbackBindRefused;
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
 
@@ -413,6 +416,13 @@ fn renderFlaggedPaths(
         const pretty = prettifyPath(session.raw_path, home_dir);
         try w.print("{s}{s}\n", .{ pretty.prefix, pretty.rest });
     }
+}
+
+fn isLoopback(address: std.Io.net.IpAddress) bool {
+    return switch (address) {
+        .ip4 => |a| a.bytes[0] == 127,
+        .ip6 => |a| std.mem.eql(u8, &a.bytes, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }),
+    };
 }
 
 fn sortFlaggedByRecency(slice: []FlaggedSession) void {
@@ -791,6 +801,22 @@ test "routeFor maps paths and 404s the rest" {
 
     const missing = routeFor("/nope", "DIGEST", "FLAGGED");
     try std.testing.expectEqual(std.http.Status.not_found, missing.status);
+}
+
+test "isLoopback accepts 127/8 and ::1; rejects everything else" {
+    const lo4 = try std.Io.net.IpAddress.parseLiteral("127.0.0.1:0");
+    const lo4_high = try std.Io.net.IpAddress.parseLiteral("127.255.255.254:0");
+    const lo6 = try std.Io.net.IpAddress.parseLiteral("[::1]:0");
+    const any4 = try std.Io.net.IpAddress.parseLiteral("0.0.0.0:0");
+    const lan = try std.Io.net.IpAddress.parseLiteral("192.168.1.10:0");
+    const any6 = try std.Io.net.IpAddress.parseLiteral("[::]:0");
+
+    try std.testing.expect(isLoopback(lo4));
+    try std.testing.expect(isLoopback(lo4_high));
+    try std.testing.expect(isLoopback(lo6));
+    try std.testing.expect(!isLoopback(any4));
+    try std.testing.expect(!isLoopback(lan));
+    try std.testing.expect(!isLoopback(any6));
 }
 
 test "renderFlaggedPaths sorts most-recent-first and collapses home" {

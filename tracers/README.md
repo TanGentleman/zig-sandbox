@@ -69,20 +69,23 @@ flagged sessions: 59
 ## Serve over HTTP
 
 `tracers serve` runs looptap once at startup and exposes the result as plain-text
-endpoints (handy for piping into other tools or grepping from another machine):
+endpoints for local tooling:
 
 ```bash
 tracers serve --addr 127.0.0.1:8787
-# in another shell:
+# in another shell on the same machine:
 curl http://127.0.0.1:8787/         # endpoint listing
 curl http://127.0.0.1:8787/digest   # same text as `tracers`
 curl http://127.0.0.1:8787/flagged  # flagged session paths, one per line
 ```
 
+The server is unauthenticated and will refuse to bind anywhere a remote host
+could reach it — `--addr` must be a loopback address (`127.0.0.0/8` or `[::1]`).
+Auth, an HTML view, and WebSocket support are tracked in [../TODO.md](../TODO.md);
+network-exposed binds will be enabled there.
+
 The snapshot is built once at startup; restart the server to refresh. The
 `--signal` flag is forwarded to looptap and accepts the same values as the CLI.
-
-See [../TODO.md](../TODO.md) for the open work (on-demand refresh, bundle endpoint, HTML rendering).
 
 ## Build from source
 

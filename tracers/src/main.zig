@@ -130,11 +130,25 @@ fn runServe(init: std.process.Init, stdout_writer: *Io.Writer, args: []const []c
     if (signals.items.len == 0) try signals.append(arena, "failure");
 
     const home_dir = try tracers.getHomeDir(init);
-    try tracers.serve(init, stdout_writer, .{
+    tracers.serve(init, stdout_writer, .{
         .addr = addr,
         .signals = signals.items,
         .home_dir = home_dir,
-    });
+    }) catch |err| switch (err) {
+        error.NonLoopbackBindRefused => {
+            var stderr_buffer: [256]u8 = undefined;
+            var stderr_file_writer: Io.File.Writer = .init(.stderr(), init.io, &stderr_buffer);
+            const stderr_writer = &stderr_file_writer.interface;
+            try stderr_writer.print(
+                "tracers serve: --addr {s} is not a loopback address.\n" ++
+                    "tracers serve is unauthenticated; only 127.0.0.0/8 and [::1] are accepted.\n",
+                .{addr},
+            );
+            try stderr_writer.flush();
+            std.process.exit(2);
+        },
+        else => return err,
+    };
 }
 
 const ValueFlagResult = union(enum) {

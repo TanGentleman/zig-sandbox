@@ -10,17 +10,22 @@ Open work, roughly ordered by tie-together value.
 
 ## `tracers serve` next steps
 
-The current server is a read-only snapshot built at startup. To make it
-actually useful:
+The current server is loopback-only, unauthenticated, and serves a snapshot
+built at startup. To make it actually useful:
 
-- **On-demand refresh.** `POST /refresh` (or a `GET /refresh` for now) reruns
-  looptap and replaces the cached digest. Cheaper than restarting the process.
+- **Authentication, then non-loopback binding.** Once an auth story exists
+  (bearer token at minimum), drop the loopback-only guard and let `--addr`
+  point at a routable interface. Order matters — every other endpoint below
+  expands the blast radius of an unauthenticated server.
+- **On-demand refresh.** `POST /refresh` reruns looptap and replaces the
+  cached digest. Cheaper than restarting the process.
 - **Per-request signals.** Honor `?signal=failure&signal=loop` on `/digest` and
   `/flagged` instead of locking the signal set at process start.
 - **`GET /bundle`.** Stream a tarball of the flagged transcripts on the fly.
   Internally this is the "ship the bundle" workflow below.
-- **HTML rendering.** Once the text endpoints settle, add a `text/html` view of
-  `/` listing flagged sessions with links to `/bundle?...` and the raw paths.
+- **HTML + WebSocket UI.** Once the text endpoints settle, add a `text/html`
+  view of `/` listing flagged sessions with links to `/bundle?...`, plus a
+  WebSocket for live refresh.
 
 ## Ship the bundle
 
