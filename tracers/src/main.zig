@@ -58,17 +58,13 @@ pub fn main(init: std.process.Init) !void {
             try stdout_writer.flush();
             return;
         }
-        if (std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--signal")) {
-            i += 1;
-            if (i >= args.len) try fail(init, "tracers: --signal requires a value\n");
-            try signals.append(arena, args[i]);
-            continue;
-        }
-        if (std.mem.startsWith(u8, arg, "--signal=")) {
-            const v = arg["--signal=".len..];
-            if (v.len == 0) try fail(init, "tracers: --signal requires a value\n");
-            try signals.append(arena, v);
-            continue;
+        switch (matchValueFlag(arg, args, &i, "-s", "--signal")) {
+            .matched => |v| {
+                try signals.append(arena, v);
+                continue;
+            },
+            .missing_value => try fail(init, "tracers: --signal requires a value\n"),
+            .no_match => {},
         }
         var stderr_buffer: [256]u8 = undefined;
         var stderr_file_writer: Io.File.Writer = .init(.stderr(), io, &stderr_buffer);
@@ -112,29 +108,21 @@ fn runServe(init: std.process.Init, stdout_writer: *Io.Writer, args: []const []c
             try stdout_writer.flush();
             return;
         }
-        if (std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--signal")) {
-            i += 1;
-            if (i >= args.len) try fail(init, "tracers serve: --signal requires a value\n");
-            try signals.append(arena, args[i]);
-            continue;
+        switch (matchValueFlag(arg, args, &i, "-s", "--signal")) {
+            .matched => |v| {
+                try signals.append(arena, v);
+                continue;
+            },
+            .missing_value => try fail(init, "tracers serve: --signal requires a value\n"),
+            .no_match => {},
         }
-        if (std.mem.startsWith(u8, arg, "--signal=")) {
-            const v = arg["--signal=".len..];
-            if (v.len == 0) try fail(init, "tracers serve: --signal requires a value\n");
-            try signals.append(arena, v);
-            continue;
-        }
-        if (std.mem.eql(u8, arg, "--addr")) {
-            i += 1;
-            if (i >= args.len) try fail(init, "tracers serve: --addr requires a value\n");
-            addr = args[i];
-            continue;
-        }
-        if (std.mem.startsWith(u8, arg, "--addr=")) {
-            const v = arg["--addr=".len..];
-            if (v.len == 0) try fail(init, "tracers serve: --addr requires a value\n");
-            addr = v;
-            continue;
+        switch (matchValueFlag(arg, args, &i, null, "--addr")) {
+            .matched => |v| {
+                addr = v;
+                continue;
+            },
+            .missing_value => try fail(init, "tracers serve: --addr requires a value\n"),
+            .no_match => {},
         }
         try fail(init, "tracers serve: unknown argument\n");
     }
@@ -147,6 +135,35 @@ fn runServe(init: std.process.Init, stdout_writer: *Io.Writer, args: []const []c
         .signals = signals.items,
         .home_dir = home_dir,
     });
+}
+
+const ValueFlagResult = union(enum) {
+    no_match,
+    matched: []const u8,
+    missing_value,
+};
+
+fn matchValueFlag(
+    arg: []const u8,
+    args: []const []const u8,
+    i: *usize,
+    short: ?[]const u8,
+    long: []const u8,
+) ValueFlagResult {
+    const bare_match =
+        std.mem.eql(u8, arg, long) or
+        (short != null and std.mem.eql(u8, arg, short.?));
+    if (bare_match) {
+        if (i.* + 1 >= args.len) return .missing_value;
+        i.* += 1;
+        return .{ .matched = args[i.*] };
+    }
+    if (std.mem.startsWith(u8, arg, long) and arg.len > long.len and arg[long.len] == '=') {
+        const v = arg[long.len + 1 ..];
+        if (v.len == 0) return .missing_value;
+        return .{ .matched = v };
+    }
+    return .no_match;
 }
 
 fn fail(init: std.process.Init, msg: []const u8) !noreturn {

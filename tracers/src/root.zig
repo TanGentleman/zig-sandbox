@@ -300,8 +300,6 @@ pub fn serve(init: std.process.Init, log_writer: *Io.Writer, opts: ServeOptions)
     const gpa = init.gpa;
     const io = init.io;
 
-    // Build the digest once at startup. The HTTP endpoints serve this
-    // snapshot until the process is restarted; on-demand refresh is TODO.
     _ = try mapClaudeTranscripts(init, log_writer);
     const digest = try runLooptap(init, log_writer, opts.signals);
 
@@ -329,6 +327,8 @@ pub fn serve(init: std.process.Init, log_writer: *Io.Writer, opts: ServeOptions)
     try log_writer.print("tracers serve listening on http://{f}\n", .{address});
     try log_writer.flush();
 
+    var read_buf: [8 * 1024]u8 = undefined;
+    var write_buf: [8 * 1024]u8 = undefined;
     while (true) {
         var stream = server.accept(io) catch |err| {
             try log_writer.print("accept failed: {s}\n", .{@errorName(err)});
@@ -337,8 +337,6 @@ pub fn serve(init: std.process.Init, log_writer: *Io.Writer, opts: ServeOptions)
         };
         defer stream.close(io);
 
-        var read_buf: [16 * 1024]u8 = undefined;
-        var write_buf: [16 * 1024]u8 = undefined;
         var stream_reader = stream.reader(io, &read_buf);
         var stream_writer = stream.writer(io, &write_buf);
         var http_server = std.http.Server.init(&stream_reader.interface, &stream_writer.interface);
@@ -409,16 +407,20 @@ fn renderFlaggedPaths(
     const a = arena.allocator();
 
     const sorted = try a.dupe(FlaggedSession, flagged);
-    std.mem.sort(FlaggedSession, sorted, {}, struct {
-        fn lt(_: void, lhs: FlaggedSession, rhs: FlaggedSession) bool {
-            return std.mem.order(u8, lhs.started_at, rhs.started_at) == .gt;
-        }
-    }.lt);
+    sortFlaggedByRecency(sorted);
 
     for (sorted) |session| {
         const pretty = prettifyPath(session.raw_path, home_dir);
         try w.print("{s}{s}\n", .{ pretty.prefix, pretty.rest });
     }
+}
+
+fn sortFlaggedByRecency(slice: []FlaggedSession) void {
+    std.mem.sort(FlaggedSession, slice, {}, struct {
+        fn lt(_: void, lhs: FlaggedSession, rhs: FlaggedSession) bool {
+            return std.mem.order(u8, lhs.started_at, rhs.started_at) == .gt;
+        }
+    }.lt);
 }
 
 pub fn dumpDigest(digest: LooptapDigest, w: *Io.Writer) !void {
@@ -502,11 +504,7 @@ fn printFlagged(
     }
 
     const sorted = try a.dupe(FlaggedSession, flagged);
-    std.mem.sort(FlaggedSession, sorted, {}, struct {
-        fn lt(_: void, lhs: FlaggedSession, rhs: FlaggedSession) bool {
-            return std.mem.order(u8, lhs.started_at, rhs.started_at) == .gt;
-        }
-    }.lt);
+    sortFlaggedByRecency(sorted);
 
     const total = sorted.len;
     const limit = if (opts.flagged_path_limit == 0) total else @min(opts.flagged_path_limit, total);
