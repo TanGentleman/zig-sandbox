@@ -12,7 +12,11 @@ pub const std_options: std.Options = .{
 const usage =
     \\tracers — orchestrate looptap over your Claude transcripts
     \\
-    \\Usage: tracers [--signal TYPE]... [--version | --help]
+    \\Usage:
+    \\  tracers [--signal TYPE]...           print a digest to stdout
+    \\  tracers serve [--addr HOST:PORT]     start an HTTP server (text endpoints)
+    \\         [--signal TYPE]...
+    \\  tracers --version | --help
     \\
     \\Default behavior: walk ~/.claude/projects, run looptap (run → info → query
     \\--signal failure), and print a digest. Requires `looptap` on PATH.
@@ -20,6 +24,7 @@ const usage =
     \\Options:
     \\  -s, --signal TYPE   signal type to surface; repeatable
     \\                      (default: failure)
+    \\      --addr HOST:PORT  listen address for `serve` (default: 127.0.0.1:8787)
     \\  -v, --version       print version and exit
     \\  -h, --help          print this help and exit
     \\
@@ -34,6 +39,10 @@ pub fn main(init: std.process.Init) !void {
     const stdout_writer = &stdout_file_writer.interface;
 
     const args = try init.minimal.args.toSlice(arena);
+
+    if (args.len > 1 and std.mem.eql(u8, args[1], "serve")) {
+        return runServe(init, stdout_writer, args[2..]);
+    }
 
     var signals: std.ArrayList([]const u8) = .empty;
     var i: usize = 1;
@@ -87,6 +96,57 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try stdout_writer.flush();
+}
+
+fn runServe(init: std.process.Init, stdout_writer: *Io.Writer, args: []const []const u8) !void {
+    const arena = init.arena.allocator();
+
+    var signals: std.ArrayList([]const u8) = .empty;
+    var addr: []const u8 = "127.0.0.1:8787";
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            try stdout_writer.writeAll(usage);
+            try stdout_writer.flush();
+            return;
+        }
+        if (std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--signal")) {
+            i += 1;
+            if (i >= args.len) try fail(init, "tracers serve: --signal requires a value\n");
+            try signals.append(arena, args[i]);
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--signal=")) {
+            const v = arg["--signal=".len..];
+            if (v.len == 0) try fail(init, "tracers serve: --signal requires a value\n");
+            try signals.append(arena, v);
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--addr")) {
+            i += 1;
+            if (i >= args.len) try fail(init, "tracers serve: --addr requires a value\n");
+            addr = args[i];
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "--addr=")) {
+            const v = arg["--addr=".len..];
+            if (v.len == 0) try fail(init, "tracers serve: --addr requires a value\n");
+            addr = v;
+            continue;
+        }
+        try fail(init, "tracers serve: unknown argument\n");
+    }
+
+    if (signals.items.len == 0) try signals.append(arena, "failure");
+
+    const home_dir = try tracers.getHomeDir(init);
+    try tracers.serve(init, stdout_writer, .{
+        .addr = addr,
+        .signals = signals.items,
+        .home_dir = home_dir,
+    });
 }
 
 fn fail(init: std.process.Init, msg: []const u8) !noreturn {
