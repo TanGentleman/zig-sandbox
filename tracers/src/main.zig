@@ -129,26 +129,25 @@ fn runServe(init: std.process.Init, stdout_writer: *Io.Writer, args: []const []c
 
     if (signals.items.len == 0) try signals.append(arena, "failure");
 
+    const parsed = std.Io.net.IpAddress.parseLiteral(addr) catch
+        try failAddr(init, addr, "not a valid HOST:PORT");
+    if (!tracers.isLoopback(parsed))
+        try failAddr(init, addr, "not a loopback address; only 127.0.0.0/8 and [::1] are accepted (auth tracked in TODO.md)");
+
     const home_dir = try tracers.getHomeDir(init);
-    tracers.serve(init, stdout_writer, .{
+    try tracers.serve(init, stdout_writer, .{
         .addr = addr,
         .signals = signals.items,
         .home_dir = home_dir,
-    }) catch |err| switch (err) {
-        error.NonLoopbackBindRefused => {
-            var stderr_buffer: [256]u8 = undefined;
-            var stderr_file_writer: Io.File.Writer = .init(.stderr(), init.io, &stderr_buffer);
-            const stderr_writer = &stderr_file_writer.interface;
-            try stderr_writer.print(
-                "tracers serve: --addr {s} is not a loopback address.\n" ++
-                    "tracers serve is unauthenticated; only 127.0.0.0/8 and [::1] are accepted.\n",
-                .{addr},
-            );
-            try stderr_writer.flush();
-            std.process.exit(2);
-        },
-        else => return err,
-    };
+    });
+}
+
+fn failAddr(init: std.process.Init, addr: []const u8, reason: []const u8) !noreturn {
+    var buf: [256]u8 = undefined;
+    var fw: Io.File.Writer = .init(.stderr(), init.io, &buf);
+    try fw.interface.print("tracers serve: --addr {s} is {s}.\n", .{ addr, reason });
+    try fw.interface.flush();
+    std.process.exit(2);
 }
 
 const ValueFlagResult = union(enum) {

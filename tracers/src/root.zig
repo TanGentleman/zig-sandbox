@@ -321,9 +321,6 @@ pub fn serve(init: std.process.Init, log_writer: *Io.Writer, opts: ServeOptions)
     const flagged_text = flagged_aw.writer.buffered();
 
     const address = try std.Io.net.IpAddress.parseLiteral(opts.addr);
-    // The server is unauthenticated; refuse to bind anywhere a remote host
-    // could reach. Lift this once an auth story exists (see TODO.md).
-    if (!isLoopback(address)) return error.NonLoopbackBindRefused;
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
 
@@ -418,7 +415,7 @@ fn renderFlaggedPaths(
     }
 }
 
-fn isLoopback(address: std.Io.net.IpAddress) bool {
+pub fn isLoopback(address: std.Io.net.IpAddress) bool {
     return switch (address) {
         .ip4 => |a| a.bytes[0] == 127,
         .ip6 => |a| std.mem.eql(u8, &a.bytes, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }),
