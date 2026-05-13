@@ -286,6 +286,150 @@ pub const PrintOptions = struct {
     flagged_path_limit: usize = 5,
 };
 
+pub const ServeOptions = struct {
+    /// Listen address, parsed by `std.Io.net.IpAddress.parseLiteral`
+    /// (e.g. "127.0.0.1:8787" or "[::1]:8787").
+    addr: []const u8 = "127.0.0.1:8787",
+    /// Signal types passed through to `runLooptap`.
+    signals: []const []const u8 = &.{"failure"},
+    /// Used to collapse the user's home dir to `~` in rendered output.
+    home_dir: ?[]const u8 = null,
+};
+
+pub fn serve(init: std.process.Init, log_writer: *Io.Writer, opts: ServeOptions) !void {
+    const gpa = init.gpa;
+    const io = init.io;
+
+    _ = try mapClaudeTranscripts(init, log_writer);
+    const digest = try runLooptap(init, log_writer, opts.signals);
+
+    var digest_buf: std.ArrayList(u8) = .empty;
+    defer digest_buf.deinit(gpa);
+    var digest_aw: Io.Writer.Allocating = .fromArrayList(gpa, &digest_buf);
+    try printDigest(
+        gpa,
+        digest,
+        .{ .home_dir = opts.home_dir, .flagged_path_limit = 0 },
+        &digest_aw.writer,
+    );
+    const digest_text = digest_aw.writer.buffered();
+
+    var flagged_buf: std.ArrayList(u8) = .empty;
+    defer flagged_buf.deinit(gpa);
+    var flagged_aw: Io.Writer.Allocating = .fromArrayList(gpa, &flagged_buf);
+    try renderFlaggedPaths(gpa, &flagged_aw.writer, digest.flagged, opts.home_dir);
+    const flagged_text = flagged_aw.writer.buffered();
+
+    const address = try std.Io.net.IpAddress.parseLiteral(opts.addr);
+    var server = try address.listen(io, .{ .reuse_address = true });
+    defer server.deinit(io);
+
+    try log_writer.print("tracers serve listening on http://{f}\n", .{address});
+    try log_writer.flush();
+
+    var read_buf: [8 * 1024]u8 = undefined;
+    var write_buf: [8 * 1024]u8 = undefined;
+    while (true) {
+        var stream = server.accept(io) catch |err| {
+            try log_writer.print("accept failed: {s}\n", .{@errorName(err)});
+            try log_writer.flush();
+            continue;
+        };
+        defer stream.close(io);
+
+        var stream_reader = stream.reader(io, &read_buf);
+        var stream_writer = stream.writer(io, &write_buf);
+        var http_server = std.http.Server.init(&stream_reader.interface, &stream_writer.interface);
+
+        while (true) {
+            var request = http_server.receiveHead() catch |err| switch (err) {
+                error.HttpConnectionClosing => break,
+                else => {
+                    try log_writer.print("receiveHead failed: {s}\n", .{@errorName(err)});
+                    try log_writer.flush();
+                    break;
+                },
+            };
+
+            const route = routeFor(targetPath(request.head.target), digest_text, flagged_text);
+            request.respond(route.body, .{
+                .status = route.status,
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
+                },
+            }) catch |err| {
+                try log_writer.print("respond failed: {s}\n", .{@errorName(err)});
+                try log_writer.flush();
+                break;
+            };
+
+            if (!request.head.keep_alive) break;
+        }
+    }
+}
+
+const Route = struct {
+    status: std.http.Status,
+    body: []const u8,
+};
+
+fn targetPath(target: []const u8) []const u8 {
+    if (std.mem.indexOfScalar(u8, target, '?')) |i| return target[0..i];
+    return target;
+}
+
+fn routeFor(path: []const u8, digest_text: []const u8, flagged_text: []const u8) Route {
+    if (std.mem.eql(u8, path, "/")) return .{
+        .status = .ok,
+        .body =
+            \\tracers HTTP server
+            \\
+            \\GET /digest    rendered digest snapshot (text)
+            \\GET /flagged   flagged session paths, one per line, most recent first
+            \\
+            ,
+    };
+    if (std.mem.eql(u8, path, "/digest")) return .{ .status = .ok, .body = digest_text };
+    if (std.mem.eql(u8, path, "/flagged")) return .{ .status = .ok, .body = flagged_text };
+    return .{ .status = .not_found, .body = "not found\n" };
+}
+
+fn renderFlaggedPaths(
+    gpa: std.mem.Allocator,
+    w: *Io.Writer,
+    flagged: []const FlaggedSession,
+    home_dir: ?[]const u8,
+) !void {
+    if (flagged.len == 0) return;
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const sorted = try a.dupe(FlaggedSession, flagged);
+    sortFlaggedByRecency(sorted);
+
+    for (sorted) |session| {
+        const pretty = prettifyPath(session.raw_path, home_dir);
+        try w.print("{s}{s}\n", .{ pretty.prefix, pretty.rest });
+    }
+}
+
+pub fn isLoopback(address: std.Io.net.IpAddress) bool {
+    return switch (address) {
+        .ip4 => |a| a.bytes[0] == 127,
+        .ip6 => |a| std.mem.eql(u8, &a.bytes, &.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }),
+    };
+}
+
+fn sortFlaggedByRecency(slice: []FlaggedSession) void {
+    std.mem.sort(FlaggedSession, slice, {}, struct {
+        fn lt(_: void, lhs: FlaggedSession, rhs: FlaggedSession) bool {
+            return std.mem.order(u8, lhs.started_at, rhs.started_at) == .gt;
+        }
+    }.lt);
+}
+
 pub fn dumpDigest(digest: LooptapDigest, w: *Io.Writer) !void {
     try w.writeAll("\n=== looptap digest (json) ===\n");
     try std.json.Stringify.value(digest, .{ .whitespace = .indent_2 }, w);
@@ -367,11 +511,7 @@ fn printFlagged(
     }
 
     const sorted = try a.dupe(FlaggedSession, flagged);
-    std.mem.sort(FlaggedSession, sorted, {}, struct {
-        fn lt(_: void, lhs: FlaggedSession, rhs: FlaggedSession) bool {
-            return std.mem.order(u8, lhs.started_at, rhs.started_at) == .gt;
-        }
-    }.lt);
+    sortFlaggedByRecency(sorted);
 
     const total = sorted.len;
     const limit = if (opts.flagged_path_limit == 0) total else @min(opts.flagged_path_limit, total);
@@ -634,6 +774,70 @@ test "printFlagged truncates beyond limit and notes hidden count" {
     const idx4 = std.mem.indexOf(u8, out, "/p/4.jsonl").?;
     const idx3 = std.mem.indexOf(u8, out, "/p/3.jsonl").?;
     try std.testing.expect(idx4 < idx3);
+}
+
+test "targetPath strips query string" {
+    try std.testing.expectEqualStrings("/", targetPath("/"));
+    try std.testing.expectEqualStrings("/flagged", targetPath("/flagged"));
+    try std.testing.expectEqualStrings("/flagged", targetPath("/flagged?signal=failure"));
+    try std.testing.expectEqualStrings("/digest", targetPath("/digest?"));
+}
+
+test "routeFor maps paths and 404s the rest" {
+    const ok_root = routeFor("/", "DIGEST", "FLAGGED");
+    try std.testing.expectEqual(std.http.Status.ok, ok_root.status);
+    try std.testing.expect(std.mem.indexOf(u8, ok_root.body, "GET /digest") != null);
+
+    const ok_digest = routeFor("/digest", "DIGEST", "FLAGGED");
+    try std.testing.expectEqual(std.http.Status.ok, ok_digest.status);
+    try std.testing.expectEqualStrings("DIGEST", ok_digest.body);
+
+    const ok_flagged = routeFor("/flagged", "DIGEST", "FLAGGED");
+    try std.testing.expectEqual(std.http.Status.ok, ok_flagged.status);
+    try std.testing.expectEqualStrings("FLAGGED", ok_flagged.body);
+
+    const missing = routeFor("/nope", "DIGEST", "FLAGGED");
+    try std.testing.expectEqual(std.http.Status.not_found, missing.status);
+}
+
+test "isLoopback accepts 127/8 and ::1; rejects everything else" {
+    const lo4 = try std.Io.net.IpAddress.parseLiteral("127.0.0.1:0");
+    const lo4_high = try std.Io.net.IpAddress.parseLiteral("127.255.255.254:0");
+    const lo6 = try std.Io.net.IpAddress.parseLiteral("[::1]:0");
+    const any4 = try std.Io.net.IpAddress.parseLiteral("0.0.0.0:0");
+    const lan = try std.Io.net.IpAddress.parseLiteral("192.168.1.10:0");
+    const any6 = try std.Io.net.IpAddress.parseLiteral("[::]:0");
+
+    try std.testing.expect(isLoopback(lo4));
+    try std.testing.expect(isLoopback(lo4_high));
+    try std.testing.expect(isLoopback(lo6));
+    try std.testing.expect(!isLoopback(any4));
+    try std.testing.expect(!isLoopback(lan));
+    try std.testing.expect(!isLoopback(any6));
+}
+
+test "renderFlaggedPaths sorts most-recent-first and collapses home" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const flagged = [_]FlaggedSession{
+        .{ .session_id = "old", .raw_path = "/Users/tan/.claude/projects/old.jsonl", .started_at = "2026-04-01", .signals = &.{.{ .type = "failure", .confidence = 0.9 }} },
+        .{ .session_id = "new", .raw_path = "/Users/tan/.claude/projects/new.jsonl", .started_at = "2026-05-13", .signals = &.{.{ .type = "failure", .confidence = 0.9 }} },
+        .{ .session_id = "other", .raw_path = "/var/log/x.jsonl", .started_at = "2026-05-01", .signals = &.{.{ .type = "failure", .confidence = 0.9 }} },
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(a);
+    var aw: Io.Writer.Allocating = .fromArrayList(a, &buf);
+    try renderFlaggedPaths(std.testing.allocator, &aw.writer, &flagged, "/Users/tan");
+
+    const out = aw.writer.buffered();
+    const idx_new = std.mem.indexOf(u8, out, "~/.claude/projects/new.jsonl") orelse return error.MissingNew;
+    const idx_other = std.mem.indexOf(u8, out, "/var/log/x.jsonl") orelse return error.MissingOther;
+    const idx_old = std.mem.indexOf(u8, out, "~/.claude/projects/old.jsonl") orelse return error.MissingOld;
+    try std.testing.expect(idx_new < idx_other);
+    try std.testing.expect(idx_other < idx_old);
 }
 
 test "prettifyPath collapses home prefix" {

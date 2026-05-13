@@ -12,7 +12,11 @@ pub const std_options: std.Options = .{
 const usage =
     \\tracers — orchestrate looptap over your Claude transcripts
     \\
-    \\Usage: tracers [--signal TYPE]... [--version | --help]
+    \\Usage:
+    \\  tracers [--signal TYPE]...           print a digest to stdout
+    \\  tracers serve [--addr HOST:PORT]     start an HTTP server (text endpoints)
+    \\         [--signal TYPE]...
+    \\  tracers --version | --help
     \\
     \\Default behavior: walk ~/.claude/projects, run looptap (run → info → query
     \\--signal failure), and print a digest. Requires `looptap` on PATH.
@@ -20,6 +24,7 @@ const usage =
     \\Options:
     \\  -s, --signal TYPE   signal type to surface; repeatable
     \\                      (default: failure)
+    \\      --addr HOST:PORT  listen address for `serve` (default: 127.0.0.1:8787)
     \\  -v, --version       print version and exit
     \\  -h, --help          print this help and exit
     \\
@@ -35,6 +40,10 @@ pub fn main(init: std.process.Init) !void {
 
     const args = try init.minimal.args.toSlice(arena);
 
+    if (args.len > 1 and std.mem.eql(u8, args[1], "serve")) {
+        return runServe(init, stdout_writer, args[2..]);
+    }
+
     var signals: std.ArrayList([]const u8) = .empty;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -49,17 +58,13 @@ pub fn main(init: std.process.Init) !void {
             try stdout_writer.flush();
             return;
         }
-        if (std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--signal")) {
-            i += 1;
-            if (i >= args.len) try fail(init, "tracers: --signal requires a value\n");
-            try signals.append(arena, args[i]);
-            continue;
-        }
-        if (std.mem.startsWith(u8, arg, "--signal=")) {
-            const v = arg["--signal=".len..];
-            if (v.len == 0) try fail(init, "tracers: --signal requires a value\n");
-            try signals.append(arena, v);
-            continue;
+        switch (matchValueFlag(arg, args, &i, "-s", "--signal")) {
+            .matched => |v| {
+                try signals.append(arena, v);
+                continue;
+            },
+            .missing_value => try fail(init, "tracers: --signal requires a value\n"),
+            .no_match => {},
         }
         var stderr_buffer: [256]u8 = undefined;
         var stderr_file_writer: Io.File.Writer = .init(.stderr(), io, &stderr_buffer);
@@ -87,6 +92,91 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try stdout_writer.flush();
+}
+
+fn runServe(init: std.process.Init, stdout_writer: *Io.Writer, args: []const []const u8) !void {
+    const arena = init.arena.allocator();
+
+    var signals: std.ArrayList([]const u8) = .empty;
+    var addr: []const u8 = "127.0.0.1:8787";
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            try stdout_writer.writeAll(usage);
+            try stdout_writer.flush();
+            return;
+        }
+        switch (matchValueFlag(arg, args, &i, "-s", "--signal")) {
+            .matched => |v| {
+                try signals.append(arena, v);
+                continue;
+            },
+            .missing_value => try fail(init, "tracers serve: --signal requires a value\n"),
+            .no_match => {},
+        }
+        switch (matchValueFlag(arg, args, &i, null, "--addr")) {
+            .matched => |v| {
+                addr = v;
+                continue;
+            },
+            .missing_value => try fail(init, "tracers serve: --addr requires a value\n"),
+            .no_match => {},
+        }
+        try fail(init, "tracers serve: unknown argument\n");
+    }
+
+    if (signals.items.len == 0) try signals.append(arena, "failure");
+
+    const parsed = std.Io.net.IpAddress.parseLiteral(addr) catch
+        try failAddr(init, addr, "not a valid HOST:PORT");
+    if (!tracers.isLoopback(parsed))
+        try failAddr(init, addr, "not a loopback address; only 127.0.0.0/8 and [::1] are accepted (auth tracked in TODO.md)");
+
+    const home_dir = try tracers.getHomeDir(init);
+    try tracers.serve(init, stdout_writer, .{
+        .addr = addr,
+        .signals = signals.items,
+        .home_dir = home_dir,
+    });
+}
+
+fn failAddr(init: std.process.Init, addr: []const u8, reason: []const u8) !noreturn {
+    var buf: [256]u8 = undefined;
+    var fw: Io.File.Writer = .init(.stderr(), init.io, &buf);
+    try fw.interface.print("tracers serve: --addr {s} is {s}.\n", .{ addr, reason });
+    try fw.interface.flush();
+    std.process.exit(2);
+}
+
+const ValueFlagResult = union(enum) {
+    no_match,
+    matched: []const u8,
+    missing_value,
+};
+
+fn matchValueFlag(
+    arg: []const u8,
+    args: []const []const u8,
+    i: *usize,
+    short: ?[]const u8,
+    long: []const u8,
+) ValueFlagResult {
+    const bare_match =
+        std.mem.eql(u8, arg, long) or
+        (short != null and std.mem.eql(u8, arg, short.?));
+    if (bare_match) {
+        if (i.* + 1 >= args.len) return .missing_value;
+        i.* += 1;
+        return .{ .matched = args[i.*] };
+    }
+    if (std.mem.startsWith(u8, arg, long) and arg.len > long.len and arg[long.len] == '=') {
+        const v = arg[long.len + 1 ..];
+        if (v.len == 0) return .missing_value;
+        return .{ .matched = v };
+    }
+    return .no_match;
 }
 
 fn fail(init: std.process.Init, msg: []const u8) !noreturn {
